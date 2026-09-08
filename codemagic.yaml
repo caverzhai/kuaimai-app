@@ -35,10 +35,20 @@ workflows:
 
       - name: 构建IPA
         script: |
-          xcode-project build-ipa \
-            --workspace "$CM_BUILD_DIR/client/ios/App/App.xcworkspace" \
-            --scheme "$XCODE_SCHEME" \
-            --config Debug
+          cd client/ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+          # 打包成IPA
+          mkdir -p Payload
+          cp -R build/Build/Products/Debug-iphoneos/App.app Payload/
+          zip -r App.ipa Payload
+          mkdir -p build/ios/ipa
+          mv App.ipa build/ios/ipa/
 
     artifacts:
       - client/ios/App/build/ios/ipa/*.ipa
