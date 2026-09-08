@@ -1,0 +1,7 @@
+{
+  "version": "2.17.0",
+  "versionCode": 82,
+  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
+  "releaseNotes": "1. 【自动更新功能】APP启动3秒后自动检查更新，发现新版本弹出更新提示，点击立即更新自动下载安装，以后不用手动下载了\n2. 【每小时检查】APP运行期间每小时自动检查一次更新\n3. 【强制更新】重要版本支持强制更新，不更新无法继续使用\n4. 【聊天室功能】申请功能已修复，支持标准时间选择器，管理员批准后自动准时上线\n5. 【版本号修复】彻底解决版本号显示不正确的问题，本次全部重新编译构建",
+  "forceUpdate": true
+}

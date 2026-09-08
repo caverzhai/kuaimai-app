@@ -1,0 +1,10 @@
+# 排除前端目录（前端已打包为 APK，不需要在 Railway 上构建）
+client/
+
+# 排除其他不需要的文件
+*.md
+*.zip
+.env
+.env.local
+.git/
+Dockerfile.bak

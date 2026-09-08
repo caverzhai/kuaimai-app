@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build outputs
+client/dist/
+client/android/app/build/
+client/ios/App/build/
+client/ios/Pods/
+*.ipa
+*.apk
+*.aab
+
+# Environment
+.env
+.env.local
+.env.*.local
+pgvars.json
+vars.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test files
+test-*.txt
+test-*.png
+test-*.jpg
+user-screenshot*.png
+screenshot*.png
+register-error*.png
+upload_error.png
+railway-current.png
+test-current.png
+
+# Source zip
+kuaimai-source.zip
+
+# Railway
+.railway/
