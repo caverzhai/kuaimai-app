@@ -33,16 +33,12 @@ workflows:
           cd client/ios/App
           pod install
 
-      - name: 设置代码签名
-        script: |
-          xcode-project use-profiles
-
       - name: 构建IPA
         script: |
           xcode-project build-ipa \
             --workspace "$CM_BUILD_DIR/client/ios/App/App.xcworkspace" \
             --scheme "$XCODE_SCHEME" \
-            --archive_xcargs "CODE_SIGN_IDENTITY='Apple Development' CODE_SIGNING_REQUIRED=YES"
+            --config Debug
 
     artifacts:
       - client/ios/App/build/ios/ipa/*.ipa
