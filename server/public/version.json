@@ -1,0 +1,7 @@
+{
+  "version": "2.24.4",
+  "versionCode": 106,
+  "forceUpdate": true,
+  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
+  "releaseNotes": "1. 管理员后台新增聊天室管理tab，可查看所有聊天室并手动删除\n2. 已结束超过24小时的聊天室自动彻底删除（含消息、成员、麦位）\n3. 个人资料页取消收货信息，改用实名认证的地址和姓名\n4. 未上传身份证的用户不能进行升级任务"
+}

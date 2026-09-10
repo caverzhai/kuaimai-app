@@ -1,0 +1,105 @@
+workflows:
+  ios-build:
+    name: iOS Build (快卖APP)
+    max_build_duration: 90
+    instance_type: mac_mini_m1
+    environment:
+      groups:
+        - app_store_credentials
+      vars:
+        XCODE_WORKSPACE: "client/ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        BUNDLE_ID: "com.kuaimai.app"
+      node: 18
+      cocoapods: default
+    scripts:
+      - name: 安装前端依赖
+        script: |
+          cd client
+          npm install --legacy-peer-deps
+
+      - name: 构建前端
+        script: |
+          cd client
+          npm run build
+
+      - name: 同步iOS平台
+        script: |
+          cd client
+          npx cap sync ios
+
+      - name: 安装CocoaPods依赖
+        script: |
+          cd client/ios/App
+          pod install
+
+      - name: 构建IPA
+        script: |
+          cd client/ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+          # 打包成IPA
+          mkdir -p Payload
+          cp -R build/Build/Products/Debug-iphoneos/App.app Payload/
+          zip -r App.ipa Payload
+          mkdir -p build/ios/ipa
+          mv App.ipa build/ios/ipa/
+
+    artifacts:
+      - client/ios/App/build/ios/ipa/*.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com  # 改成你的邮箱
+        notify:
+          success: true
+          failure: true
+
+  android-build:
+    name: Android Build (快卖APP)
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      vars:
+        PACKAGE_NAME: "com.kuaimai.app"
+      node: 18
+      java: 17
+    scripts:
+      - name: 安装前端依赖
+        script: |
+          cd client
+          npm install --legacy-peer-deps
+
+      - name: 构建前端
+        script: |
+          cd client
+          npm run build
+
+      - name: 同步Android平台
+        script: |
+          cd client
+          npx cap sync android
+
+      - name: 构建APK
+        script: |
+          cd client/android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+    artifacts:
+      - client/android/app/build/outputs/apk/debug/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com  # 改成你的邮箱
+        notify:
+          success: true
+          failure: true

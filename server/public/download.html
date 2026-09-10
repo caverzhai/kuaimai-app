@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>快卖APP下载</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px 30px;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .logo {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 36px;
+      font-weight: bold;
+      color: white;
+    }
+    h1 {
+      font-size: 24px;
+      color: #1f2937;
+      margin-bottom: 8px;
+    }
+    .version {
+      font-size: 14px;
+      color: #6b7280;
+      margin-bottom: 30px;
+    }
+    .download-btn {
+      display: block;
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: white;
+      text-decoration: none;
+      border-radius: 12px;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 20px;
+      transition: transform 0.2s;
+    }
+    .download-btn:active {
+      transform: scale(0.98);
+    }
+    .wechat-tip {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: left;
+      display: none;
+    }
+    .wechat-tip.show {
+      display: block;
+    }
+    .wechat-tip h3 {
+      color: #92400e;
+      font-size: 15px;
+      margin-bottom: 8px;
+    }
+    .wechat-tip p {
+      color: #78350f;
+      font-size: 13px;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+    .wechat-tip .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .wechat-tip .num {
+      background: #f59e0b;
+      color: white;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .info {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">快</div>
+    <h1>快卖 APP</h1>
+    <p class="version">版本 v2.22.5 · 安卓版</p>
+    
+    <a href="/download/kuaimai.apk" class="download-btn" id="downloadBtn">
+      立即下载安装
+    </a>
+    
+    <div class="wechat-tip" id="wechatTip">
+      <h3>⚠️ 微信内无法直接下载</h3>
+      <div class="step">
+        <span class="num">1</span>
+        <p>点击右上角「···」按钮</p>
+      </div>
+      <div class="step">
+        <span class="num">2</span>
+        <p>选择「在浏览器打开」</p>
+      </div>
+      <div class="step">
+        <span class="num">3</span>
+        <p>在浏览器中点击下载按钮</p>
+      </div>
+    </div>
+    
+    <p class="info">下载完成后点击安装即可，覆盖旧版本</p>
+  </div>
+
+  <script>
+    // 检测是否在微信中打开
+    var ua = navigator.userAgent.toLowerCase();
+    var isWechat = ua.indexOf('micromessenger') !== -1;
+    if (isWechat) {
+      document.getElementById('wechatTip').classList.add('show');
+      document.getElementById('downloadBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        alert('请点击右上角「···」，选择「在浏览器打开」后下载');
+      });
+    }
+  </script>
+</body>
+</html>
