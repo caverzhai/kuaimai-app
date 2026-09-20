@@ -541,12 +541,12 @@ const ChatRoomDetailPage: React.FC = () => {
 
       {/* 用户列表区域 */}
       {members.length > 0 && (
-        <div className="bg-white border-b px-4 py-3 flex-shrink-0">
+        <div className="bg-white border-b px-3 py-3 flex-shrink-0">
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-bold text-gray-700">
               在线成员 ({members.length})
             </span>
-            {members.length > 18 && (
+            {members.length > 30 && (
               <span
                 onClick={() => setShowAllMembers(!showAllMembers)}
                 className="text-xs text-blue-500 cursor-pointer"
@@ -556,16 +556,16 @@ const ChatRoomDetailPage: React.FC = () => {
             )}
           </div>
           <div
-            className="flex flex-wrap gap-3"
+            className="flex flex-wrap gap-2"
             style={{
-              maxHeight: showAllMembers ? 'none' : 156,
+              maxHeight: showAllMembers ? 'none' : 132,
               overflow: showAllMembers ? 'visible' : 'hidden',
             }}
           >
-            {(showAllMembers ? members : members.slice(0, 18)).map((member) => (
-              <div key={member.userId} className="flex flex-col items-center w-12">
+            {(showAllMembers ? members : members.slice(0, 30)).map((member) => (
+              <div key={member.userId} className="flex flex-col items-center w-8">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center relative overflow-hidden ${
+                  className={`w-8 h-8 rounded-full flex items-center justify-center relative overflow-hidden ${
                     member.isOnMic ? 'bg-green-500' : 'bg-blue-100'
                   } ${member.role === 'admin' ? 'ring-2 ring-orange-500' : ''}`}
                 >
@@ -577,7 +577,7 @@ const ChatRoomDetailPage: React.FC = () => {
                     />
                   ) : (
                     <span
-                      className={`text-sm font-bold ${
+                      className={`text-xs font-bold ${
                         member.isOnMic ? 'text-white' : 'text-blue-500'
                       }`}
                     >
@@ -585,16 +585,13 @@ const ChatRoomDetailPage: React.FC = () => {
                     </span>
                   )}
                   {member.isOnMic && (
-                    <span className="absolute bottom-0 right-0 text-[8px]">🎤</span>
+                    <span className="absolute bottom-0 right-0 text-[6px]">🎤</span>
                   )}
                 </div>
-                <span className="text-[10px] text-gray-500 mt-1 truncate w-full text-center">
-                  {member.nickname}
-                </span>
               </div>
             ))}
           </div>
-          {!showAllMembers && members.length > 18 && (
+          {!showAllMembers && members.length > 30 && (
             <div
               onClick={() => setShowAllMembers(true)}
               className="text-center text-xs text-gray-400 mt-2 cursor-pointer"
