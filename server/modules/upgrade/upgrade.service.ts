@@ -272,6 +272,24 @@ export class UpgradeService {
     return this.mapTaskInfo(updated[0]);
   }
 
+  /**
+   * 临时修复方法：删除用户的所有升级任务，让系统重新生成
+   * 用于修复之前因为没有邀请人导致targetId错误的问题
+   */
+  async resetUserTasks(userId: string): Promise<{ success: boolean; message: string }> {
+    // 删除用户的所有升级任务
+    const result = await this.db
+      .delete(upgradeTasks)
+      .where(eq(upgradeTasks.userId, userId));
+
+    this.logger.log(`User ${userId} reset upgrade tasks, deleted ${result.count} rows`);
+
+    return {
+      success: true,
+      message: `已删除 ${result.count} 条升级任务，下次访问任务中心时会重新生成`,
+    };
+  }
+
   // ── Cross-module helpers ──────────────────────────────────────
 
   /**

@@ -35,6 +35,7 @@ public class MainActivity extends BridgeActivity {
 
     private long downloadId = -1;
     private String apkFilePath = null;
+    private BroadcastReceiver downloadReceiver = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -59,21 +60,40 @@ public class MainActivity extends BridgeActivity {
             // 忽略配置错误
         }
 
-        // 注册下载完成广播接收器（用try-catch包裹，避免闪退）
+        // 注册下载完成广播接收器（用成员变量持有，防止被GC回收）
         try {
-            registerReceiver(new BroadcastReceiver() {
+            downloadReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     try {
                         long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
                         if (id == downloadId && apkFilePath != null) {
-                            installApk(apkFilePath);
+                            // 检查下载是否成功
+                            DownloadManager downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                            DownloadManager.Query query = new DownloadManager.Query();
+                            query.setFilterById(id);
+                            android.database.Cursor cursor = downloadManager.query(query);
+                            if (cursor.moveToFirst()) {
+                                int status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS));
+                                cursor.close();
+                                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                                    installApk(apkFilePath);
+                                } else {
+                                    runOnUiThread(() -> {
+                                        Toast.makeText(MainActivity.this, "下载失败，请重试", Toast.LENGTH_LONG).show();
+                                    });
+                                }
+                            } else {
+                                cursor.close();
+                                installApk(apkFilePath);
+                            }
                         }
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
                 }
-            }, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+            };
+            registerReceiver(downloadReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
         } catch (Exception e) {
             e.printStackTrace();
         }

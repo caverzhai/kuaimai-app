@@ -17,9 +17,9 @@ exports.TeamService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const api_interface_1 = require("@shared/api.interface");
-const schema_1 = require("@server/database/schema");
-const auth_util_1 = require("@server/common/utils/auth.util");
+const api_interface_1 = require("../../../shared/api.interface");
+const schema_1 = require("../../database/schema");
+const auth_util_1 = require("../../common/utils/auth.util");
 let TeamService = TeamService_1 = class TeamService {
     db;
     logger = new common_1.Logger(TeamService_1.name);
@@ -117,20 +117,22 @@ let TeamService = TeamService_1 = class TeamService {
         };
     }
     async getInviteInfo(userId, userLevel) {
-        const layer = api_interface_1.LEVEL_LAYERS[userLevel] ?? 0;
-        if (layer < 4) {
-            throw new common_1.BadRequestException('仅4级及以上咨询师拥有邀请码，请先升级');
-        }
         const currentUsers = await this.db
             .select({
             id: schema_1.users.id,
             inviteCode: schema_1.users.inviteCode,
+            level: schema_1.users.level,
         })
             .from(schema_1.users)
             .where((0, drizzle_orm_1.eq)(schema_1.users.id, userId))
             .limit(1);
         if (currentUsers.length === 0) {
             throw new common_1.BadRequestException('用户不存在');
+        }
+        const latestLevel = currentUsers[0].level;
+        const layer = api_interface_1.LEVEL_LAYERS[latestLevel] ?? 0;
+        if (layer < 4) {
+            throw new common_1.BadRequestException('仅4级及以上咨询师拥有邀请码，请先升级');
         }
         let inviteCode = currentUsers[0].inviteCode;
         if (!inviteCode) {
@@ -190,7 +192,7 @@ let TeamService = TeamService_1 = class TeamService {
         };
     }
     async generateAndSaveInviteCode(userId) {
-        let code = (0, auth_util_1.generateInviteCode)(6);
+        let code = (0, auth_util_1.generateInviteCode)(8);
         let attempts = 0;
         while (attempts < 5) {
             try {

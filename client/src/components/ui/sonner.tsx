@@ -14,7 +14,14 @@ import { useTheme } from 'next-themes';
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 
 function Toaster({ className, style, icons, ...props }: ToasterProps) {
-  const { theme = 'system' } = useTheme();
+  // 防御性处理：next-themes 可能没有 ThemeProvider，使用默认值
+  let theme: ToasterProps['theme'] = 'light';
+  try {
+    const themeContext = useTheme();
+    theme = (themeContext?.theme as ToasterProps['theme']) || 'light';
+  } catch {
+    theme = 'light';
+  }
 
   return (
     <Sonner

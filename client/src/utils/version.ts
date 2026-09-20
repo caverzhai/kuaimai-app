@@ -1,6 +1,6 @@
 // APP 版本配置
-export const APP_VERSION = '2.17.0';
-export const APP_VERSION_CODE = 82;
+export const APP_VERSION = '2.24.4';
+export const APP_VERSION_CODE = 106;
 
 // 版本信息接口地址（部署到后端静态文件）
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
@@ -62,14 +62,21 @@ export function downloadAndInstall(versionInfo: VersionInfo): boolean {
       const result = JSON.parse(
         window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version)
       );
-      return result.success === true;
+      if (result.success === true) return true;
     }
-    // 非 APP 环境，打开下载链接
+    // APP环境：用系统浏览器打开下载链接（_system参数会调用外部浏览器）
+    if ((window as any).Capacitor) {
+      window.open(versionInfo.downloadUrl, '_system');
+      return true;
+    }
+    // 网页环境，打开下载链接
     window.open(versionInfo.downloadUrl, '_blank');
     return true;
   } catch (error) {
     console.error('下载更新失败', error);
-    return false;
+    // 降级处理：直接跳转
+    window.location.href = versionInfo.downloadUrl;
+    return true;
   }
 }
 

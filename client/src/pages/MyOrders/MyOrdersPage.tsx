@@ -52,6 +52,22 @@ export default function MyOrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  // 每秒更新当前时间，用于倒计时显示
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 格式化倒计时
+  const formatCountdown = (deadline: string): string => {
+    const remain = new Date(deadline).getTime() - now;
+    if (remain <= 0) return '即将自动确认';
+    const mins = Math.floor(remain / 60000);
+    const secs = Math.floor((remain % 60000) / 1000);
+    return `${mins}分${secs.toString().padStart(2, '0')}秒后自动确认`;
+  };
 
   const fetchOrders = useCallback(
     async (p: number, replace: boolean, status: string) => {
@@ -241,14 +257,28 @@ export default function MyOrdersPage() {
                       <span className="text-xs text-gray-400">
                         订单号：{order.orderNo}
                       </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          statusColor[order.status] ||
-                          'text-gray-500 bg-gray-100'
-                        }`}
-                      >
-                        {MALL_ORDER_STATUS_NAMES[order.status] || order.status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {order.status === MALL_ORDER_STATUS.PENDING_REVIEW && order.autoConfirmDeadline && (
+                          <span className="text-xs text-orange-500 flex items-center gap-1">
+                            <Clock className="w-3 h-3 animate-pulse" />
+                            {formatCountdown(order.autoConfirmDeadline)}
+                          </span>
+                        )}
+                        {order.status === MALL_ORDER_STATUS.PENDING_DELIVERY && order.autoDeliveryDeadline && (
+                          <span className="text-xs text-blue-500 flex items-center gap-1">
+                            <Clock className="w-3 h-3 animate-pulse" />
+                            {formatCountdown(order.autoDeliveryDeadline).replace('自动确认', '自动收货')}
+                          </span>
+                        )}
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            statusColor[order.status] ||
+                            'text-gray-500 bg-gray-100'
+                          }`}
+                        >
+                          {MALL_ORDER_STATUS_NAMES[order.status] || order.status}
+                        </span>
+                      </div>
                     </div>
 
                     {/* 商品信息 */}

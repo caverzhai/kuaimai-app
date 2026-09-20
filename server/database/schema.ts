@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 /* eslint-disable */
 /** auto generated, do not edit */
 import { sql } from 'drizzle-orm';
@@ -214,6 +214,7 @@ export const consultOrders = pgTable("consult_orders", {
   taskLevelFrom: varchar("task_level_from", { length: 20 }),
   taskLevelTo: varchar("task_level_to", { length: 20 }),
   taskIndex: integer("task_index"),
+  taskId: varchar("task_id", { length: 100 }),
   status: varchar("status", { length: 30 }).notNull().default('pending_payment'),
   paymentScreenshotUrl: text("payment_screenshot_url"),
   paymentConfirmedAt: customTimestamptz("payment_confirmed_at", { precision: 3 }),
@@ -223,7 +224,7 @@ export const consultOrders = pgTable("consult_orders", {
   reviewRemark: text("review_remark"),
   isOverflow: boolean("is_overflow").notNull().default(false),
   overflowToGroup: boolean("overflow_to_group").notNull().default(false),
-  autoConfirmDeadline: customTimestamptz("auto_confirm_deadline", { precision: 3 }),
+  autoConfirmDeadline: customTimestamptz('auto_confirm_deadline', { precision: 3 }),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -257,7 +258,8 @@ export const mallOrders = pgTable("mall_orders", {
   deliveredAt: customTimestamptz("delivered_at", { precision: 3 }),
   cancelReason: text("cancel_reason"),
   cancelledAt: customTimestamptz("cancelled_at", { precision: 3 }),
-  autoConfirmDeadline: customTimestamptz("auto_confirm_deadline", { precision: 3 }),
+  autoConfirmDeadline: customTimestamptz('auto_confirm_deadline', { precision: 3 }),
+  autoDeliveryDeadline: customTimestamptz('auto_delivery_deadline', { precision: 3 }),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -318,6 +320,8 @@ export const users = pgTable("users", {
   wechatId: varchar("wechat_id", { length: 100 }),
   idCardFrontUrl: text("id_card_front_url"),
   idCardBackUrl: text("id_card_back_url"),
+  idCardNumber: varchar("id_card_number", { length: 20 }),
+  address: text("address"),
   wechatQrcodeUrl: text("wechat_qrcode_url"),
   alipayQrcodeUrl: text("alipay_qrcode_url"),
   companyQrcodeUrl: text("company_qrcode_url"),
@@ -358,7 +362,7 @@ export const upgradeTasksTable = upgradeTasks;
 export const usersTable = users;
 
 // ============================================================
-// 聊天室相关表
+// 鑱婂ぉ瀹ょ浉鍏宠〃
 // ============================================================
 
 // 聊天室
@@ -366,12 +370,12 @@ export const chatRooms = pgTable("chat_rooms", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
-  type: varchar("type", { length: 20 }).notNull().default('public'), // public=管理员创建(有麦位), personal=个人创建(无麦位)
+  type: varchar("type", { length: 20 }).notNull().default('public'), // public=绠＄悊鍛樺垱寤?鏈夐害浣?, personal=涓汉鍒涘缓(鏃犻害浣?
   createdBy: uuid("created_by").notNull(),
   maxMicCount: integer("max_mic_count").notNull().default(3),
   isActive: boolean("is_active").notNull().default(true),
-  scheduledStartTime: customTimestamptz("scheduled_start_time", { precision: 3 }), // 定时上线时间
-  scheduledEndTime: customTimestamptz("scheduled_end_time", { precision: 3 }), // 定时下线时间
+  scheduledStartTime: customTimestamptz("scheduled_start_time", { precision: 3 }), // 瀹氭椂涓婄嚎鏃堕棿
+  scheduledEndTime: customTimestamptz("scheduled_end_time", { precision: 3 }), // 瀹氭椂涓嬬嚎鏃堕棿
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -398,15 +402,15 @@ export const chatRoomMembers = pgTable("chat_room_members", {
 export const chatRoomApplications = pgTable("chat_room_applications", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull(),
-  roomName: varchar("room_name", { length: 50 }).notNull(), // 聊天室名称（12个汉字以内）
+  roomName: varchar("room_name", { length: 50 }).notNull(), // 鑱婂ぉ瀹ゅ悕绉帮紙12涓眽瀛椾互鍐咃級
   description: varchar("description", { length: 200 }).notNull(), // 50字说明
   usageTime: varchar("usage_time", { length: 100 }).notNull(), // 使用时间段
-  contactPhone: varchar("contact_phone", { length: 20 }).notNull(), // 联系电话
-  scheduledStartTime: customTimestamptz("scheduled_start_time", { precision: 3 }), // 定时上线时间
-  scheduledEndTime: customTimestamptz("scheduled_end_time", { precision: 3 }), // 定时下线时间
+  contactPhone: varchar("contact_phone", { length: 20 }).notNull(), // 鑱旂郴鐢佃瘽
+  scheduledStartTime: customTimestamptz("scheduled_start_time", { precision: 3 }), // 瀹氭椂涓婄嚎鏃堕棿
+  scheduledEndTime: customTimestamptz("scheduled_end_time", { precision: 3 }), // 瀹氭椂涓嬬嚎鏃堕棿
   status: varchar("status", { length: 20 }).notNull().default('pending'), // pending, approved, rejected, expired
   approvedBy: uuid("approved_by"),
-  roomId: uuid("room_id"), // 审批通过后创建的聊天室ID
+  roomId: uuid("room_id"), // 瀹℃壒閫氳繃鍚庡垱寤虹殑鑱婂ぉ瀹D
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -440,7 +444,7 @@ export const chatBlockedWords = pgTable("chat_blocked_words", {
   uniqueIndex("chat_blocked_words_word_key").on(table.word),
 ]);
 
-// 麦位
+// 楹︿綅
 export const chatMicSlots = pgTable("chat_mic_slots", {
   id: uuid("id").defaultRandom().primaryKey(),
   roomId: uuid("room_id").notNull(),
@@ -454,7 +458,7 @@ export const chatMicSlots = pgTable("chat_mic_slots", {
   index("idx_chat_mic_slots_user_id").on(table.userId),
 ]);
 
-// 上麦申请
+// 涓婇害鐢宠
 export const chatMicRequests = pgTable("chat_mic_requests", {
   id: uuid("id").defaultRandom().primaryKey(),
   roomId: uuid("room_id").notNull(),
@@ -469,7 +473,7 @@ export const chatMicRequests = pgTable("chat_mic_requests", {
   index("idx_chat_mic_requests_status").on(table.status),
 ]);
 
-// 好友
+// 濂藉弸
 export const friends = pgTable("friends", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull(),

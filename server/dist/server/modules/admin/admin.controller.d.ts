@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { AdminService } from './admin.service';
-import type { ProductListResponse, ProductInfo, MallOrderListResponse, MallOrderInfo, ConsultOrderListResponse, UserInfo, PlatformQrcodeInfo, ReviewDTO, ShipDTO } from '@shared/api.interface';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import type { ProductListResponse, ProductInfo, MallOrderListResponse, MallOrderInfo, ConsultOrderListResponse, UserInfo, PlatformQrcodeInfo, ReviewDTO, ShipDTO } from '../../../shared/api.interface';
 interface CreateProductBody {
     name: string;
     price: string;
@@ -36,7 +37,8 @@ interface QrcodeUpdateBody {
 }
 export declare class AdminController {
     private readonly adminService;
-    constructor(adminService: AdminService);
+    private readonly db;
+    constructor(adminService: AdminService, db: PostgresJsDatabase);
     getProductList(page?: string, pageSize?: string, category?: string, keyword?: string, status?: string): Promise<ProductListResponse>;
     createProduct(req: Request, body: CreateProductBody): Promise<ProductInfo>;
     updateProduct(req: Request, id: string, body: UpdateProductBody): Promise<ProductInfo>;
@@ -62,5 +64,36 @@ export declare class AdminController {
     getPlatformQrcode(type: string): Promise<PlatformQrcodeInfo>;
     updatePlatformQrcode(type: string, body: QrcodeUpdateBody): Promise<PlatformQrcodeInfo>;
     getConsultOrderList(page?: string, pageSize?: string, status?: string): Promise<ConsultOrderListResponse>;
+    resetUpgradeTasks(req: Request): Promise<{
+        success: boolean;
+        deletedCount: number;
+        deleted: {
+            id: string;
+            userId: string;
+            taskIndex: number;
+            title: string;
+        }[];
+    }>;
+    updateUserPhone(req: Request, id: string, body: {
+        phone: string;
+    }): Promise<UserInfo>;
+    batchDeleteUsers(req: Request, body: {
+        keepPhones?: string[];
+        deleteUserIds?: string[];
+    }): Promise<{
+        success: boolean;
+        deletedCount: number;
+        users: any[];
+        deletedUsers?: undefined;
+    } | {
+        success: boolean;
+        deletedCount: number;
+        deletedUsers: {
+            id: string;
+            phone: string;
+            nickname: string;
+        }[];
+        users?: undefined;
+    }>;
 }
 export {};

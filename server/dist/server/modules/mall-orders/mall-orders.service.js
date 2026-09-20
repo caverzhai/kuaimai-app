@@ -17,9 +17,9 @@ exports.MallOrdersService = void 0;
 const common_1 = require("@nestjs/common");
 const drizzle_orm_1 = require("drizzle-orm");
 const database_module_1 = require("../../database/database.module");
-const schema_1 = require("@server/database/schema");
-const auth_util_1 = require("@server/common/utils/auth.util");
-const api_interface_1 = require("@shared/api.interface");
+const schema_1 = require("../../database/schema");
+const auth_util_1 = require("../../common/utils/auth.util");
+const api_interface_1 = require("../../../shared/api.interface");
 let MallOrdersService = MallOrdersService_1 = class MallOrdersService {
     db;
     logger = new common_1.Logger(MallOrdersService_1.name);
@@ -53,6 +53,9 @@ let MallOrdersService = MallOrdersService_1 = class MallOrdersService {
             cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : undefined,
             autoConfirmDeadline: order.autoConfirmDeadline
                 ? order.autoConfirmDeadline.toISOString()
+                : undefined,
+            autoDeliveryDeadline: order.autoDeliveryDeadline
+                ? order.autoDeliveryDeadline.toISOString()
                 : undefined,
             createdAt: order.createdAt.toISOString(),
         };
@@ -193,6 +196,123 @@ let MallOrdersService = MallOrdersService_1 = class MallOrdersService {
             .returning();
         this.logger.log(`订单确认收货: orderId=${id}`);
         return this.toOrderInfo(updated[0]);
+    }
+    async confirmPayment(operatorPhone, id) {
+        const ADMIN_PHONES = ['13800000000'];
+        if (!ADMIN_PHONES.includes(operatorPhone)) {
+            throw new common_1.ForbiddenException('只有管理员可以确认收款');
+        }
+        const orderList = await this.db
+            .select()
+            .from(schema_1.mallOrders)
+            .where((0, drizzle_orm_1.eq)(schema_1.mallOrders.id, id));
+        const order = orderList[0];
+        if (!order) {
+            throw new common_1.NotFoundException('订单不存在');
+        }
+        if (order.status !== api_interface_1.MALL_ORDER_STATUS.PENDING_REVIEW) {
+            throw new common_1.BadRequestException('当前订单状态不允许确认收款');
+        }
+        const now = new Date();
+        const updated = await this.db
+            .update(schema_1.mallOrders)
+            .set({
+            status: api_interface_1.MALL_ORDER_STATUS.PENDING_SHIPMENT,
+            paymentConfirmedAt: now,
+        })
+            .where((0, drizzle_orm_1.eq)(schema_1.mallOrders.id, id))
+            .returning();
+        this.logger.log(`商城订单确认收款: orderId=${id}, 状态变为待发货`);
+        return this.toOrderInfo(updated[0]);
+    }
+    async getAllOrders(operatorPhone, page, pageSize, status) {
+        const ADMIN_PHONES = ['13800000000'];
+        if (!ADMIN_PHONES.includes(operatorPhone)) {
+            throw new common_1.ForbiddenException('只有管理员可以查看所有订单');
+        }
+        const conditions = [];
+        if (status) {
+            conditions.push((0, drizzle_orm_1.eq)(schema_1.mallOrders.status, status));
+        }
+        const whereClause = conditions.length > 0 ? (0, drizzle_orm_1.and)(...conditions) : undefined;
+        const [countResult, items] = await Promise.all([
+            this.db
+                .select({ count: (0, drizzle_orm_1.count)() })
+                .from(schema_1.mallOrders)
+                .where(whereClause),
+            this.db
+                .select()
+                .from(schema_1.mallOrders)
+                .where(whereClause)
+                .orderBy((0, drizzle_orm_1.desc)(schema_1.mallOrders.createdAt))
+                .limit(pageSize)
+                .offset((page - 1) * pageSize),
+        ]);
+        const total = Number(countResult[0]?.count ?? 0);
+        return {
+            items: items.map((item) => this.toOrderInfo(item)),
+            total,
+            page,
+            pageSize,
+        };
+    }
+    async autoDeliverExpiredOrdersCron() {
+        const now = new Date();
+        let delivered = 0;
+        try {
+            const expiredOrders = await this.db
+                .select()
+                .from(schema_1.mallOrders)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.mallOrders.status, api_interface_1.MALL_ORDER_STATUS.PENDING_DELIVERY), (0, drizzle_orm_1.sql) `${schema_1.mallOrders.autoDeliveryDeadline} <= ${now}`));
+            if (expiredOrders.length > 0) {
+                this.logger.log(`定时任务扫描到 ${expiredOrders.length} 个超时未收货订单`);
+            }
+            for (const order of expiredOrders) {
+                try {
+                    await this.db.update(schema_1.mallOrders).set({ status: api_interface_1.MALL_ORDER_STATUS.COMPLETED, deliveredAt: now }).where((0, drizzle_orm_1.eq)(schema_1.mallOrders.id, order.id));
+                    delivered++;
+                }
+                catch (e) {
+                    this.logger.error(`定时任务自动收货失败: orderId=${order.id}, error=${e}`);
+                }
+            }
+            if (delivered > 0) {
+                this.logger.log(`定时任务完成: 商城订单自动收货${delivered}个`);
+            }
+        }
+        catch (e) {
+            this.logger.error(`定时任务扫描超时收货订单失败: ${e}`);
+        }
+        return { delivered };
+    }
+    async autoConfirmExpiredOrdersCron() {
+        const now = new Date();
+        let confirmed = 0;
+        try {
+            const expiredOrders = await this.db
+                .select()
+                .from(schema_1.mallOrders)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.mallOrders.status, api_interface_1.MALL_ORDER_STATUS.PENDING_REVIEW), (0, drizzle_orm_1.sql) `${schema_1.mallOrders.autoConfirmDeadline} <= ${now}`));
+            if (expiredOrders.length > 0) {
+                this.logger.log(`定时任务扫描到 ${expiredOrders.length} 个超时商城订单`);
+            }
+            for (const order of expiredOrders) {
+                try {
+                    await this.confirmPayment('13800000000', order.id);
+                    confirmed++;
+                }
+                catch (e) {
+                    this.logger.error(`定时任务确认商城订单失败: orderId=${order.id}, error=${e}`);
+                }
+            }
+            if (confirmed > 0) {
+                this.logger.log(`定时任务完成: 商城订单自动确认${confirmed}个`);
+            }
+        }
+        catch (e) {
+            this.logger.error(`定时任务扫描商城订单失败: ${e}`);
+        }
+        return { confirmed };
     }
 };
 exports.MallOrdersService = MallOrdersService;

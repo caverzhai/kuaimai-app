@@ -1,4 +1,4 @@
-// 共享类型定义
+﻿// 鍏变韩绫诲瀷瀹氫箟
 export interface UserInfo {
   id: string;
   phone: string;
@@ -9,6 +9,8 @@ export interface UserInfo {
   level: string;
   isInvited: boolean;
   inviterId?: string;
+  inviterNickname?: string;
+  inviterPhone?: string;
   parentId?: string;
   inviteCode?: string;
   receiveAddress?: string;
@@ -22,7 +24,9 @@ export interface UserInfo {
   businessLicenseUrl?: string;
   idCardFrontUrl?: string;
   idCardBackUrl?: string;
+  idCardNumber?: string;
   realName?: string;
+  address?: string;
   wechatId?: string;
   companyAuditStatus?: string;
   totalConsultIncome: string;
@@ -105,6 +109,7 @@ export interface MallOrderInfo {
   cancelReason?: string;
   cancelledAt?: string;
   autoConfirmDeadline?: string;
+  autoDeliveryDeadline?: string;
   createdAt: string;
 }
 
@@ -135,6 +140,7 @@ export interface ConsultOrderInfo {
   taskLevelFrom?: string;
   taskLevelTo?: string;
   taskIndex?: number;
+  taskId?: string;
   status: string;
   paymentScreenshotUrl?: string;
   paymentConfirmedAt?: string;
@@ -145,6 +151,7 @@ export interface ConsultOrderInfo {
   isOverflow: boolean;
   overflowToGroup: boolean;
   autoConfirmDeadline?: string;
+  autoDeliveryDeadline?: string;
   createdAt: string;
 }
 
@@ -155,6 +162,7 @@ export interface CreateConsultOrderDTO {
   taskLevelFrom?: string;
   taskLevelTo?: string;
   taskIndex?: number;
+  taskId?: string;
 }
 
 export interface ConsultOrderListResponse {
@@ -282,7 +290,9 @@ export interface UpdateProfileDTO {
   businessLicenseUrl?: string;
   idCardFrontUrl?: string;
   idCardBackUrl?: string;
+  idCardNumber?: string;
   realName?: string;
+  address?: string;
   wechatId?: string;
 }
 

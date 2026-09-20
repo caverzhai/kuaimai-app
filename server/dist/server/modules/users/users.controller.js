@@ -15,7 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UsersController = void 0;
 const common_1 = require("@nestjs/common");
 const users_service_1 = require("./users.service");
-const auth_guard_1 = require("@server/common/guards/auth.guard");
+const auth_guard_1 = require("../../common/guards/auth.guard");
 let UsersController = class UsersController {
     usersService;
     constructor(usersService) {
@@ -24,6 +24,10 @@ let UsersController = class UsersController {
     async getMe(req) {
         const userId = req.user.userId;
         return this.usersService.getCurrentUser(userId);
+    }
+    async getRelationTree(req) {
+        const userId = req.user.userId;
+        return this.usersService.getRelationTree(userId);
     }
     async updateProfile(req, dto) {
         const userId = req.user.userId;
@@ -47,6 +51,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], UsersController.prototype, "getMe", null);
+__decorate([
+    (0, common_1.Get)('relation-tree'),
+    (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], UsersController.prototype, "getRelationTree", null);
 __decorate([
     (0, common_1.Patch)('profile'),
     (0, common_1.UseGuards)(auth_guard_1.AuthGuard),

@@ -278,22 +278,33 @@ export class AdminController {
     return this.adminService.updateUserPhone(id, body.phone);
   }
 
-  // 批量删除用户（保留指定手机号的用户）
+  // 批量删除用户（支持指定删除ID或保留手机号）
   @Post('users/batch-delete')
   async batchDeleteUsers(
     @Req() req: Request,
-    @Body() body: { keepPhones: string[] },
+    @Body() body: { keepPhones?: string[]; deleteUserIds?: string[] },
   ) {
     checkAdmin(req);
     const keepPhones = body.keepPhones || [];
+    const deleteUserIds = body.deleteUserIds || [];
 
     // 查出所有用户
     const allUsers = await this.db
       .select({ id: users.id, phone: users.phone, nickname: users.nickname })
       .from(users);
 
-    // 过滤出要删除的用户
-    const usersToDelete = allUsers.filter((u) => !keepPhones.includes(u.phone));
+    let usersToDelete: { id: string; phone: string; nickname: string }[];
+
+    if (deleteUserIds.length > 0) {
+      // 如果指定了要删除的用户ID，只删除这些用户（同时排除keepPhones中的用户）
+      usersToDelete = allUsers.filter(
+        (u) => deleteUserIds.includes(u.id) && !keepPhones.includes(u.phone)
+      );
+    } else {
+      // 否则删除除了keepPhones之外的所有用户（用于数据清理）
+      usersToDelete = allUsers.filter((u) => !keepPhones.includes(u.phone));
+    }
+
     const deleteIds = usersToDelete.map((u) => u.id);
 
     if (deleteIds.length === 0) {

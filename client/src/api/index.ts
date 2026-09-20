@@ -48,6 +48,19 @@ export async function getCurrentUser() {
   }
 }
 
+export async function getRelationTree() {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/users/relation-tree',
+      method: 'GET',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取关系树失败', error);
+    throw error;
+  }
+}
+
 export async function updateProfile(data: Record<string, unknown>) {
   try {
     const response = await axiosForBackend({
@@ -664,6 +677,19 @@ export async function rejectRoomApplication(applicationId: string) {
   }
 }
 
+export async function deleteRoomApplication(applicationId: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/chat-rooms/applications/${applicationId}`,
+      method: 'DELETE',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('删除聊天室申请失败', error);
+    throw error;
+  }
+}
+
 export async function getChatRoomDetail(roomId: string) {
   try {
     const response = await axiosForBackend({
@@ -673,6 +699,19 @@ export async function getChatRoomDetail(roomId: string) {
     return response.data;
   } catch (error) {
     logger.error('获取聊天室详情失败', error);
+    throw error;
+  }
+}
+
+export async function getChatRoomMembers(roomId: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/chat-rooms/${roomId}/members`,
+      method: 'GET',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取聊天室成员列表失败', error);
     throw error;
   }
 }
@@ -825,6 +864,34 @@ export async function closeChatRoom(roomId: string) {
   }
 }
 
+// 管理员：获取所有聊天室（包括已结束的）
+export async function adminGetAllChatRooms() {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/chat-rooms/admin/all',
+      method: 'GET',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取所有聊天室失败', error);
+    throw error;
+  }
+}
+
+// 管理员：删除聊天室
+export async function adminDeleteChatRoom(roomId: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/chat-rooms/admin/${roomId}`,
+      method: 'DELETE',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('删除聊天室失败', error);
+    throw error;
+  }
+}
+
 export async function getBlockedWords() {
   try {
     const response = await axiosForBackend({
@@ -933,6 +1000,238 @@ export async function createPersonalChatRoom(data: { name: string; memberIds: st
     return response.data;
   } catch (error) {
     logger.error('创建个人聊天室失败', error);
+    throw error;
+  }
+}
+
+// ============================================================
+// OCR 身份证识别 API
+// ============================================================
+
+export async function recognizeIdCard(imageUrl: string, cardType: 'face' | 'back' = 'face') {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/ocr/idcard',
+      method: 'POST',
+      data: { imageUrl, cardType },
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('身份证OCR识别失败', error);
+    throw error;
+  }
+}
+
+// ============================================================
+// 商家 API（/api/seller）
+// ============================================================
+
+export async function getSellerProducts(params: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/seller/products',
+      method: 'GET',
+      params,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取商家商品列表失败', error);
+    throw error;
+  }
+}
+
+export async function createSellerProduct(data: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/seller/products',
+      method: 'POST',
+      data,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('商家创建商品失败', error);
+    throw error;
+  }
+}
+
+export async function updateSellerProduct(id: string, data: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/seller/products/${id}`,
+      method: 'PATCH',
+      data,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('商家编辑商品失败', error);
+    throw error;
+  }
+}
+
+export async function toggleSellerProductStatus(id: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/seller/products/${id}/toggle-status`,
+      method: 'POST',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('商家上下架失败', error);
+    throw error;
+  }
+}
+
+export async function getSellerOrders(params: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/seller/orders',
+      method: 'GET',
+      params,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取商家订单列表失败', error);
+    throw error;
+  }
+}
+
+export async function sellerShipOrder(id: string, data: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/seller/orders/${id}/ship`,
+      method: 'POST',
+      data,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('商家发货失败', error);
+    throw error;
+  }
+}
+
+export async function getSellerManagementFees(params: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/seller/management-fees',
+      method: 'GET',
+      params,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取商家管理费列表失败', error);
+    throw error;
+  }
+}
+
+export async function payManagementFee(id: string, screenshotUrl: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/seller/management-fees/${id}/pay`,
+      method: 'POST',
+      data: { screenshotUrl },
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('上传管理费支付凭证失败', error);
+    throw error;
+  }
+}
+
+export async function getSellerStats() {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/seller/stats',
+      method: 'GET',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取商家统计失败', error);
+    throw error;
+  }
+}
+
+export async function applySeller(data: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/seller/apply',
+      method: 'POST',
+      data,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('申请成为商家失败', error);
+    throw error;
+  }
+}
+
+// ============================================================
+// 管理员：商家与管理费管理 API（/api/admin）
+// ============================================================
+
+export async function getAdminSellers(params: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/admin/sellers',
+      method: 'GET',
+      params,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取商家列表失败', error);
+    throw error;
+  }
+}
+
+export async function updateAdminSellerStatus(id: string, status: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/admin/sellers/${id}/status`,
+      method: 'PATCH',
+      data: { status },
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('更新商家状态失败', error);
+    throw error;
+  }
+}
+
+export async function getAdminManagementFees(params: Record<string, unknown>) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/admin/management-fees',
+      method: 'GET',
+      params,
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取管理费列表失败', error);
+    throw error;
+  }
+}
+
+export async function confirmManagementFee(id: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/admin/management-fees/${id}/confirm`,
+      method: 'POST',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('确认管理费失败', error);
+    throw error;
+  }
+}
+
+export async function rejectManagementFee(id: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/admin/management-fees/${id}/reject`,
+      method: 'POST',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('拒绝管理费失败', error);
     throw error;
   }
 }

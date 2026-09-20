@@ -80,4 +80,31 @@ export class MallOrdersController {
     const userId = req.user!.userId;
     return this.mallOrdersService.confirmDelivery(userId, id);
   }
+
+  @UseGuards(AuthGuard)
+  @Post(':id/confirm-payment')
+  async confirmPayment(
+    @Req() req: Request,
+    @Param('id') id: string,
+  ): Promise<MallOrderInfo> {
+    const operatorPhone = req.user!.phone;
+    return this.mallOrdersService.confirmPayment(operatorPhone, id);
+  }
+
+  @UseGuards(AuthGuard)
+  @Get('admin/all')
+  async getAllOrders(
+    @Req() req: Request,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('status') status?: string,
+  ): Promise<MallOrderListResponse> {
+    const operatorPhone = req.user!.phone;
+    return this.mallOrdersService.getAllOrders(
+      operatorPhone,
+      parseInt(page, 10),
+      parseInt(pageSize, 10),
+      status,
+    );
+  }
 }

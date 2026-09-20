@@ -24,10 +24,11 @@ import {
   getMyConsultOrders,
   uploadConsultPayment,
   confirmConsultPayment,
+  getConsultantDetail,
 } from '../../api';
 import { uploadImageToServer } from '../../utils/imageUpload';
-import type { ConsultOrderInfo, ConsultOrderListResponse } from '@shared/api.interface';
-import { CONSULT_ORDER_STATUS, CONSULT_ORDER_STATUS_NAMES } from '@shared/api.interface';
+import type { ConsultOrderInfo, ConsultOrderListResponse, UserInfo } from '@shared/api.interface';
+import { CONSULT_ORDER_STATUS, CONSULT_ORDER_STATUS_NAMES, LEVEL_LAYERS } from '@shared/api.interface';
 
 type ViewMode = 'student' | 'consultant';
 
@@ -251,6 +252,7 @@ export default function ConsultOrdersPage() {
   // 付款相关
   const [payDialogOpen, setPayDialogOpen] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<ConsultOrderInfo | null>(null);
+  const [consultantInfo, setConsultantInfo] = useState<UserInfo | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -279,11 +281,21 @@ export default function ConsultOrdersPage() {
     fetchOrders();
   }, [fetchOrders]);
 
-  const handlePay = (order: ConsultOrderInfo) => {
+  const handlePay = async (order: ConsultOrderInfo) => {
     setCurrentOrder(order);
     setUploaded(false);
     setDialogError(null);
+    setConsultantInfo(null);
     setPayDialogOpen(true);
+    // 获取咨询师信息（收款码）
+    if (order.consultantId) {
+      try {
+        const info = await getConsultantDetail(order.consultantId);
+        setConsultantInfo(info as UserInfo);
+      } catch (err) {
+        logger.error('获取咨询师信息失败', err);
+      }
+    }
   };
 
   const handleConfirm = async (order: ConsultOrderInfo) => {
@@ -422,6 +434,41 @@ export default function ConsultOrdersPage() {
                   </span>
                 </div>
               </div>
+
+              {/* 收款码显示 */}
+              {currentOrder.status === CONSULT_ORDER_STATUS.PENDING_PAYMENT && (
+                <div className="text-center">
+                  <p className="text-sm text-gray-600 mb-3">请扫码支付对应金额</p>
+                  {consultantInfo ? (
+                    <div className="flex justify-center">
+                      {(() => {
+                        const ADMIN_ID = '4b51567f-8020-415c-8b5d-1de2f28e141d';
+                        const isCompanyQrcode = consultantInfo.id !== ADMIN_ID && LEVEL_LAYERS[consultantInfo.level] >= 7;
+                        const qrcodeUrl = isCompanyQrcode
+                          ? consultantInfo.companyQrcodeUrl
+                          : consultantInfo.wechatQrcodeUrl;
+                        return qrcodeUrl ? (
+                          <Image
+                            src={qrcodeUrl}
+                            alt="收款码"
+                            width={160}
+                            height={160}
+                            className="w-40 h-40 rounded-xl object-cover bg-gray-100"
+                          />
+                        ) : (
+                          <div className="w-40 h-40 rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center text-gray-400 text-xs">
+                            暂无收款码
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="w-40 h-40 mx-auto rounded-xl bg-gray-50 flex items-center justify-center">
+                      <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {!uploaded ? (
                 <>

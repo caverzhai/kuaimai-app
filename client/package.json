@@ -1,7 +1,7 @@
 {
   "name": "kuaimai-client",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.25.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -19,6 +19,7 @@
     "@capacitor/haptics": "^6.0.0",
     "@capacitor/ios": "^6.2.2",
     "@capacitor/keyboard": "^6.0.0",
+    "@capacitor/preferences": "^6.0.4",
     "@capacitor/splash-screen": "^6.0.4",
     "@capacitor/status-bar": "^6.0.0",
     "@radix-ui/react-accordion": "^1.2.20",
@@ -54,6 +55,7 @@
     "@tiptap/extension-image": "^3.31.0",
     "@tiptap/pm": "^3.31.0",
     "@tiptap/react": "^3.31.0",
+    "china-division": "^2.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.0.0",
     "cmdk": "^1.1.1",

@@ -20,6 +20,10 @@ const upgrade_module_1 = require("./modules/upgrade/upgrade.module");
 const team_module_1 = require("./modules/team/team.module");
 const admin_module_1 = require("./modules/admin/admin.module");
 const upload_module_1 = require("./modules/upload/upload.module");
+const chat_rooms_module_1 = require("./modules/chat-rooms/chat-rooms.module");
+const chat_messages_module_1 = require("./modules/chat-messages/chat-messages.module");
+const friends_module_1 = require("./modules/friends/friends.module");
+const ocr_module_1 = require("./modules/ocr/ocr.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -36,6 +40,10 @@ exports.AppModule = AppModule = __decorate([
             team_module_1.TeamModule,
             admin_module_1.AdminModule,
             upload_module_1.UploadModule,
+            chat_rooms_module_1.ChatRoomsModule,
+            chat_messages_module_1.ChatMessagesModule,
+            friends_module_1.FriendsModule,
+            ocr_module_1.OcrModule,
         ],
         providers: [
             {

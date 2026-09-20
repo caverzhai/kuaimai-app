@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { ConsultOrderInfo, CreateConsultOrderDTO, ConsultOrderListResponse, PaymentScreenshotDTO, WorkScreenshotDTO, ReviewDTO } from '@shared/api.interface';
+import type { ConsultOrderInfo, CreateConsultOrderDTO, ConsultOrderListResponse, PaymentScreenshotDTO, WorkScreenshotDTO, ReviewDTO } from '../../../shared/api.interface';
 import { UpgradeService } from '../upgrade/upgrade.service';
 export declare class ConsultOrdersService {
     private readonly db;
@@ -10,6 +10,7 @@ export declare class ConsultOrdersService {
     private toUserBrief;
     getDistanceBetween(studentId: string, consultantId: string): Promise<number | null>;
     create(studentId: string, isInvited: boolean, dto: CreateConsultOrderDTO): Promise<ConsultOrderInfo>;
+    private autoConfirmExpiredOrders;
     getStudentOrders(studentId: string, page: number, pageSize: number, status?: string): Promise<ConsultOrderListResponse>;
     getConsultantOrders(consultantId: string, page: number, pageSize: number, status?: string): Promise<ConsultOrderListResponse>;
     getOrderDetail(userId: string, id: string): Promise<ConsultOrderInfo>;
@@ -17,4 +18,8 @@ export declare class ConsultOrdersService {
     confirmPayment(userId: string, id: string): Promise<ConsultOrderInfo>;
     uploadWork(userId: string, id: string, dto: WorkScreenshotDTO): Promise<ConsultOrderInfo>;
     reviewWork(userId: string, id: string, dto: ReviewDTO): Promise<ConsultOrderInfo>;
+    autoConfirmExpiredOrdersCron(): Promise<{
+        confirmed: number;
+        reviewed: number;
+    }>;
 }

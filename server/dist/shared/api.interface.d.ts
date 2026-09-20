@@ -8,6 +8,8 @@ export interface UserInfo {
     level: string;
     isInvited: boolean;
     inviterId?: string;
+    inviterNickname?: string;
+    inviterPhone?: string;
     parentId?: string;
     inviteCode?: string;
     receiveAddress?: string;
@@ -19,6 +21,12 @@ export interface UserInfo {
     alipayQrcodeUrl?: string;
     companyQrcodeUrl?: string;
     businessLicenseUrl?: string;
+    idCardFrontUrl?: string;
+    idCardBackUrl?: string;
+    idCardNumber?: string;
+    realName?: string;
+    address?: string;
+    wechatId?: string;
     companyAuditStatus?: string;
     totalConsultIncome: string;
     thresholdBlocked: boolean;
@@ -97,6 +105,7 @@ export interface MallOrderInfo {
     cancelReason?: string;
     cancelledAt?: string;
     autoConfirmDeadline?: string;
+    autoDeliveryDeadline?: string;
     createdAt: string;
 }
 export interface CreateMallOrderDTO {
@@ -124,6 +133,7 @@ export interface ConsultOrderInfo {
     taskLevelFrom?: string;
     taskLevelTo?: string;
     taskIndex?: number;
+    taskId?: string;
     status: string;
     paymentScreenshotUrl?: string;
     paymentConfirmedAt?: string;
@@ -134,6 +144,7 @@ export interface ConsultOrderInfo {
     isOverflow: boolean;
     overflowToGroup: boolean;
     autoConfirmDeadline?: string;
+    autoDeliveryDeadline?: string;
     createdAt: string;
 }
 export interface CreateConsultOrderDTO {
@@ -143,6 +154,7 @@ export interface CreateConsultOrderDTO {
     taskLevelFrom?: string;
     taskLevelTo?: string;
     taskIndex?: number;
+    taskId?: string;
 }
 export interface ConsultOrderListResponse {
     items: ConsultOrderInfo[];
@@ -155,6 +167,7 @@ export interface ConsultantInfo {
     nickname: string;
     avatarUrl?: string;
     level: string;
+    phone?: string;
     industry?: string;
     qualification?: string;
     serviceStandard?: string;
@@ -252,6 +265,12 @@ export interface UpdateProfileDTO {
     alipayQrcodeUrl?: string;
     companyQrcodeUrl?: string;
     businessLicenseUrl?: string;
+    idCardFrontUrl?: string;
+    idCardBackUrl?: string;
+    idCardNumber?: string;
+    realName?: string;
+    address?: string;
+    wechatId?: string;
 }
 export interface SupplementInviterDTO {
     inviteCode: string;

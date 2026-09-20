@@ -14,7 +14,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MallOrdersController = void 0;
 const common_1 = require("@nestjs/common");
-const auth_guard_1 = require("@server/common/guards/auth.guard");
+const auth_guard_1 = require("../../common/guards/auth.guard");
 const mall_orders_service_1 = require("./mall-orders.service");
 let MallOrdersController = class MallOrdersController {
     mallOrdersService;
@@ -40,6 +40,14 @@ let MallOrdersController = class MallOrdersController {
     async confirmDelivery(req, id) {
         const userId = req.user.userId;
         return this.mallOrdersService.confirmDelivery(userId, id);
+    }
+    async confirmPayment(req, id) {
+        const operatorPhone = req.user.phone;
+        return this.mallOrdersService.confirmPayment(operatorPhone, id);
+    }
+    async getAllOrders(req, page = '1', pageSize = '20', status) {
+        const operatorPhone = req.user.phone;
+        return this.mallOrdersService.getAllOrders(operatorPhone, parseInt(page, 10), parseInt(pageSize, 10), status);
     }
 };
 exports.MallOrdersController = MallOrdersController;
@@ -91,6 +99,26 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", Promise)
 ], MallOrdersController.prototype, "confirmDelivery", null);
+__decorate([
+    (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
+    (0, common_1.Post)(':id/confirm-payment'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], MallOrdersController.prototype, "confirmPayment", null);
+__decorate([
+    (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
+    (0, common_1.Get)('admin/all'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Query)('page')),
+    __param(2, (0, common_1.Query)('pageSize')),
+    __param(3, (0, common_1.Query)('status')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object, Object, String]),
+    __metadata("design:returntype", Promise)
+], MallOrdersController.prototype, "getAllOrders", null);
 exports.MallOrdersController = MallOrdersController = __decorate([
     (0, common_1.Controller)('api/mall-orders'),
     __metadata("design:paramtypes", [mall_orders_service_1.MallOrdersService])

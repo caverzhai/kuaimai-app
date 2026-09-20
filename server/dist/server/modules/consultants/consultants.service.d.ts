@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { ConsultantInfo, ConsultantListQuery, ConsultantListResponse, IndustryInfo } from '@shared/api.interface';
+import type { ConsultantInfo, ConsultantListQuery, ConsultantListResponse, IndustryInfo } from '../../../shared/api.interface';
 export declare class ConsultantsService {
     private readonly db;
     private readonly logger;

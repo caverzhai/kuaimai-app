@@ -21,20 +21,22 @@ import {
   Camera,
   CreditCard,
   MessageCircle,
+  User,
+  Users,
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useAuth } from '@client/src/contexts/AuthContext';
-import { updateProfile } from '@client/src/api';
+import { updateProfile, getRelationTree, recognizeIdCard } from '@client/src/api';
+import { getCache, setCache } from '@client/src/utils/cache';
 import type { UpdateProfileDTO } from '@shared/api.interface';
 import { LEVEL_NAMES } from '@shared/api.interface';
 import { Image } from '@client/src/components/ui/image';
 import { FieldRow, ImageFieldRow } from '@client/src/components/ProfileFieldRow';
-import { RegionSelector } from '@client/src/components/RegionSelector';
 import { APP_VERSION, checkUpdate, downloadAndInstall, type VersionInfo } from '@client/src/utils/version';
 
-const ProfilePage = () => {
+const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
   const navigate = useNavigate();
-  const { user, loading: authLoading, refreshUser, logout } = useAuth();
+  const { user, loading: authLoading, refreshUser, logout, updateUser } = useAuth();
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -43,6 +45,25 @@ const ProfilePage = () => {
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrMessage, setOcrMessage] = useState('');
+  // 关系树数据 - 使用lazy initial state，立即从缓存显示
+  const [relationTree, setRelationTree] = useState<any>(() => {
+    try {
+      const cachedUserStr = localStorage.getItem('kuaimai_user_cache');
+      if (cachedUserStr) {
+        const cachedUser = JSON.parse(cachedUserStr);
+        if (cachedUser.id) {
+          const cached = getCache(`relation_tree_${cachedUser.id}`, true);
+          return cached || null;
+        }
+      }
+    } catch (e) {
+      // 忽略
+    }
+    return null;
+  });
+  const [relationTreeLoading, setRelationTreeLoading] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // 头像上传处理
@@ -179,8 +200,6 @@ const ProfilePage = () => {
     avatarUrl: '',
     gender: '',
     age: undefined,
-    receiveAddress: '',
-    receivePhone: '',
     industry: '',
     qualification: '',
     serviceStandard: '',
@@ -190,19 +209,20 @@ const ProfilePage = () => {
     businessLicenseUrl: '',
     idCardFrontUrl: '',
     idCardBackUrl: '',
+    idCardNumber: '',
     realName: '',
+    address: '',
     wechatId: '',
   });
 
   useEffect(() => {
-    if (user) {
+    // 编辑模式下不重置表单，防止用户正在编辑时被意外清空
+    if (user && !editing) {
       setForm({
         nickname: user.nickname || '',
         avatarUrl: user.avatarUrl || '',
         gender: user.gender || '',
         age: user.age,
-        receiveAddress: user.receiveAddress || '',
-        receivePhone: user.receivePhone || '',
         industry: user.industry || '',
         qualification: user.qualification || '',
         serviceStandard: user.serviceStandard || '',
@@ -212,19 +232,55 @@ const ProfilePage = () => {
         businessLicenseUrl: user.businessLicenseUrl || '',
         idCardFrontUrl: user.idCardFrontUrl || '',
         idCardBackUrl: user.idCardBackUrl || '',
+        idCardNumber: user.idCardNumber || '',
         realName: user.realName || '',
+        address: user.address || '',
         wechatId: user.wechatId || '',
       });
     }
-  }, [user]);
+  }, [user, editing]);
+
+  // 获取关系树数据
+  useEffect(() => {
+    if (!user) return;
+    const cacheKey = `relation_tree_${user.id}`;
+    // 先从缓存读取，立即显示（即使缓存过期也先显示，后台再更新）
+    const cached = getCache(cacheKey, true);
+    if (cached) {
+      setRelationTree(cached);
+    }
+    // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
+    if (!visible) return;
+    const fetchRelationTree = async () => {
+      setRelationTreeLoading(true);
+      try {
+        const data = await getRelationTree();
+        setRelationTree(data);
+        // 写入缓存
+        setCache(cacheKey, data);
+      } catch (err) {
+        logger.error('获取关系树失败', err);
+      } finally {
+        setRelationTreeLoading(false);
+      }
+    };
+    fetchRelationTree();
+  }, [user, visible]);
 
   const handleSave = async () => {
     setError('');
     setSuccess('');
     setLoading(true);
     try {
-      await updateProfile(form as Record<string, unknown>);
-      await refreshUser();
+      // 保存资料，API会返回更新后的完整用户信息
+      const updatedUser = await updateProfile(form as Record<string, unknown>);
+      // 直接用API返回的最新数据更新用户状态，避免额外的refreshUser请求可能带来的问题
+      if (updatedUser) {
+        updateUser(updatedUser as UserInfo);
+      } else {
+        // 兜底：如果API没有返回用户信息，再调用refreshUser
+        await refreshUser();
+      }
       setEditing(false);
       setSuccess('资料更新成功');
       setTimeout(() => setSuccess(''), 3000);
@@ -253,6 +309,41 @@ const ProfilePage = () => {
   // 辅助函数：生成字段的 onChange 处理函数
   const handleFieldChange = (field: keyof UpdateProfileDTO) => (value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // 身份证正面上传后自动OCR识别
+  const handleIdCardFrontChange = (value: string) => {
+    setForm((prev) => ({ ...prev, idCardFrontUrl: value }));
+    if (value && value.startsWith('http')) {
+      // 上传成功后自动调用OCR识别
+      setOcrLoading(true);
+      setOcrMessage('正在识别身份证信息...');
+      recognizeIdCard(value, 'face')
+        .then((result: any) => {
+          if (result.success && result.data) {
+            const { idNumber, name, gender, address } = result.data;
+            setForm((prev) => ({
+              ...prev,
+              idCardNumber: idNumber || prev.idCardNumber,
+              realName: name || prev.realName,
+              gender: gender || prev.gender,
+              address: address || prev.address,
+            }));
+            setOcrMessage('身份证识别成功，已自动填充信息');
+            setTimeout(() => setOcrMessage(''), 3000);
+          } else {
+            setOcrMessage('识别失败，请手动输入身份证号');
+            setTimeout(() => setOcrMessage(''), 3000);
+          }
+        })
+        .catch(() => {
+          setOcrMessage('识别失败，请手动输入身份证号');
+          setTimeout(() => setOcrMessage(''), 3000);
+        })
+        .finally(() => {
+          setOcrLoading(false);
+        });
+    }
   };
 
   if (authLoading) {
@@ -383,6 +474,138 @@ const ProfilePage = () => {
         </div>
       </div>
 
+      {/* 关系树 */}
+      <section className="bg-white rounded-2xl shadow-sm p-6">
+        <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <Users size={18} className="text-orange-500" />
+          我的关系树
+        </h3>
+        {relationTreeLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 size={20} className="animate-spin text-orange-500" />
+            <span className="ml-2 text-sm text-gray-500">加载中...</span>
+          </div>
+        ) : relationTree ? (
+          <div className="space-y-4">
+            {/* ===== 上级关系 ===== */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 mb-2 uppercase">上级关系</p>
+              <div className="space-y-2">
+                {/* 直接邀请人 */}
+                <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-xl">
+                  <div className="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-orange-700 font-bold text-sm flex-shrink-0">
+                    邀
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-0.5">我的直接邀请人</p>
+                    {relationTree.directInviter ? (
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 truncate">{relationTree.directInviter.nickname}</p>
+                        <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded">{LEVEL_NAMES[relationTree.directInviter.level as keyof typeof LEVEL_NAMES] || relationTree.directInviter.level}</span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">无</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 直接上级咨询师 */}
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl">
+                  <div className="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
+                    上
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-0.5">我的直接上级咨询师（上一代）</p>
+                    {relationTree.directParent ? (
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 truncate">{relationTree.directParent.nickname}</p>
+                        <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{LEVEL_NAMES[relationTree.directParent.level as keyof typeof LEVEL_NAMES] || relationTree.directParent.level}</span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">无</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ===== 下级关系 ===== */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 mb-2 uppercase">下级关系</p>
+              <div className="space-y-2">
+                {/* 直接下一代咨询师 */}
+                <div className="p-3 bg-teal-50 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-teal-200 flex items-center justify-center text-teal-700 font-bold text-xs flex-shrink-0">
+                      下1
+                    </div>
+                    <p className="text-xs text-gray-500">我的直接下一代咨询师（{relationTree.directChildren?.length || 0}人）</p>
+                  </div>
+                  {relationTree.directChildren && relationTree.directChildren.length > 0 ? (
+                    <div className="space-y-1.5 ml-10">
+                      {relationTree.directChildren.map((child: any) => (
+                        <div key={child.id} className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
+                          <span className="text-xs px-1.5 py-0.5 bg-teal-100 text-teal-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 ml-10">无</p>
+                  )}
+                </div>
+
+                {/* 下二代咨询师 */}
+                <div className="p-3 bg-green-50 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xs flex-shrink-0">
+                      下2
+                    </div>
+                    <p className="text-xs text-gray-500">我的下二代咨询师（{relationTree.secondGenerationChildren?.length || 0}人）</p>
+                  </div>
+                  {relationTree.secondGenerationChildren && relationTree.secondGenerationChildren.length > 0 ? (
+                    <div className="space-y-1.5 ml-10">
+                      {relationTree.secondGenerationChildren.map((child: any) => (
+                        <div key={child.id} className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
+                          <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 ml-10">无</p>
+                  )}
+                </div>
+
+                {/* 下三代咨询师 */}
+                <div className="p-3 bg-purple-50 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-bold text-xs flex-shrink-0">
+                      下3
+                    </div>
+                    <p className="text-xs text-gray-500">我的下三代咨询师（{relationTree.thirdGenerationChildren?.length || 0}人）</p>
+                  </div>
+                  {relationTree.thirdGenerationChildren && relationTree.thirdGenerationChildren.length > 0 ? (
+                    <div className="space-y-1.5 ml-10">
+                      {relationTree.thirdGenerationChildren.map((child: any) => (
+                        <div key={child.id} className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
+                          <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 ml-10">无</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-4">暂无关系树数据</p>
+        )}
+      </section>
+
       <section className="bg-white rounded-2xl shadow-sm p-6">
         <h3 className="text-base font-semibold text-gray-900 mb-2 flex items-center gap-2">
           <User size={18} className="text-orange-500" />
@@ -394,16 +617,6 @@ const ProfilePage = () => {
           value={form.nickname || ''}
           editing={editing} onChange={handleFieldChange('nickname')}
         />
-        <FieldRow
-          icon={User}
-          label="性别"
-          value={form.gender || ''}
-          editing={editing} onChange={handleFieldChange('gender')}
-          options={[
-            { value: '男', label: '男' },
-            { value: '女', label: '女' },
-          ]}
-        />
         <div className="flex items-start gap-3 py-3 border-b border-gray-50 last:border-b-0">
           <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500 flex-shrink-0 mt-0.5">
             <Phone size={18} />
@@ -413,66 +626,6 @@ const ProfilePage = () => {
             <p className="text-sm text-gray-900">{user.phone}</p>
           </div>
         </div>
-      </section>
-
-      <section className="bg-white rounded-2xl shadow-sm p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-2 flex items-center gap-2">
-          <MapPin size={18} className="text-orange-500" />
-          收货信息
-        </h3>
-        {editing ? (
-          <div className="py-3 border-b border-gray-50">
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500 flex-shrink-0 mt-0.5">
-                <MapPin size={18} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-500 mb-2">所在地区</p>
-                <RegionSelector
-                  value={form.receiveAddress?.split(' ')[0] || ''}
-                  onChange={(region) => {
-                    const detail = form.receiveAddress?.split(' ').slice(1).join(' ') || '';
-                    setForm((prev) => ({
-                      ...prev,
-                      receiveAddress: region ? `${region} ${detail}`.trim() : detail,
-                    }));
-                  }}
-                />
-                <p className="text-xs text-gray-500 mt-3 mb-1">详细地址</p>
-                <input
-                  type="text"
-                  value={form.receiveAddress?.split(' ').slice(1).join(' ') || ''}
-                  onChange={(e) => {
-                    const region = form.receiveAddress?.split(' ')[0] || '';
-                    setForm((prev) => ({
-                      ...prev,
-                      receiveAddress: region ? `${region} ${e.target.value}`.trim() : e.target.value,
-                    }));
-                  }}
-                  placeholder="请输入详细地址（街道、门牌号等）"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <FieldRow
-            icon={MapPin}
-            label="收货地址"
-            value={form.receiveAddress || ''}
-            field="receiveAddress"
-            textarea
-          />
-        )}
-        <FieldRow
-          icon={Phone}
-          label="联系电话"
-          value={form.receivePhone || ''}
-          editing={editing} onChange={handleFieldChange('receivePhone')}
-          maxLength={11}
-          numericOnly={true}
-          placeholder="请输入11位手机号"
-        />
       </section>
 
       {/* 咨询师资料 - 所有人都需要填写 */}
@@ -568,19 +721,137 @@ const ProfilePage = () => {
         />
       </section>
 
-      {/* 实名认证 section */}
+      {/* 实名认证 section - 上传身份证后自动填充所有信息 */}
       <section className="bg-white rounded-2xl p-4 shadow-sm">
         <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <CreditCard className="h-5 w-5 text-orange-500" />
           实名认证 <span className="text-red-500 text-xs">*必传</span>
         </h3>
+
+        {/* 身份证上传 - 放在最前面，上传后自动填充 */}
+        <ImageFieldRow
+          icon={CreditCard}
+          label="身份证正面"
+          value={form.idCardFrontUrl || ''}
+          editing={editing} onChange={handleIdCardFrontChange}
+          required
+        />
+
+        {/* OCR识别状态提示 */}
+        {ocrLoading && (
+          <div className="flex items-center gap-2 mt-2 mb-3 text-sm text-orange-600">
+            <Loader2 size={16} className="animate-spin" />
+            <span>{ocrMessage}</span>
+          </div>
+        )}
+        {!ocrLoading && ocrMessage && (
+          <div className="text-sm text-green-600 mt-2 mb-3">{ocrMessage}</div>
+        )}
+
+        {/* 上传提示 */}
+        {editing && !form.idCardFrontUrl && (
+          <p className="text-xs text-orange-500 mb-3">上传身份证正面后，系统将自动识别并填充姓名、性别、身份证号、地址</p>
+        )}
+
+        {/* 自动填充的信息字段 */}
         <FieldRow
           icon={User}
           label="真实姓名"
           value={form.realName || ''}
           editing={editing} onChange={handleFieldChange('realName')}
-          placeholder="请输入身份证上的真实姓名"
+          placeholder="上传身份证后自动填充"
         />
+
+        {/* 性别 - 只能选择男女 */}
+        {editing ? (
+          <div className="flex items-start gap-3 py-3 border-b border-gray-50">
+            <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500 flex-shrink-0 mt-0.5">
+              <User size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 mb-1.5">性别</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setForm(prev => ({ ...prev, gender: '男' }))}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${form.gender === '男' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  男
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm(prev => ({ ...prev, gender: '女' }))}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${form.gender === '女' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  女
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-3 py-3 border-b border-gray-50">
+            <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500 flex-shrink-0 mt-0.5">
+              <User size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 mb-1">性别</p>
+              <p className="text-sm text-gray-900">{form.gender || '未填写'}</p>
+            </div>
+          </div>
+        )}
+
+        {/* 身份证号 */}
+        {editing && (
+          <div className="flex items-start gap-3 py-3 border-b border-gray-50">
+            <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500 flex-shrink-0 mt-0.5">
+              <CreditCard size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 mb-1.5">身份证号码 <span className="text-red-500">*</span></p>
+              <input
+                type="text"
+                value={form.idCardNumber || ''}
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase();
+                  setForm(prev => ({ ...prev, idCardNumber: val }));
+                  if (/^\d{17}[\dX]$/.test(val)) {
+                    const genderDigit = parseInt(val.charAt(16), 10);
+                    if (!isNaN(genderDigit)) {
+                      setForm(prev => ({ ...prev, gender: genderDigit % 2 === 1 ? '男' : '女' }));
+                    }
+                  }
+                }}
+                placeholder="上传身份证后自动填充"
+                maxLength={18}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+              />
+            </div>
+          </div>
+        )}
+        {!editing && form.idCardNumber && (
+          <div className="flex items-start gap-3 py-3 border-b border-gray-50">
+            <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center text-orange-500 flex-shrink-0 mt-0.5">
+              <CreditCard size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 mb-1">身份证号码</p>
+              <p className="text-sm font-medium text-gray-900">
+                {form.idCardNumber.substring(0, 6)}********{form.idCardNumber.substring(14)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* 地址 - 上传身份证后自动填充 */}
+        <FieldRow
+          icon={MapPin}
+          label="户籍地址"
+          value={form.address || ''}
+          editing={editing} onChange={handleFieldChange('address')}
+          placeholder="上传身份证后自动填充"
+          textarea
+        />
+
         <FieldRow
           icon={MessageCircle}
           label="微信号"
@@ -588,20 +859,7 @@ const ProfilePage = () => {
           editing={editing} onChange={handleFieldChange('wechatId')}
           placeholder="选填，方便联系"
         />
-        <ImageFieldRow
-          icon={CreditCard}
-          label="身份证正面"
-          value={form.idCardFrontUrl || ''}
-          editing={editing} onChange={handleFieldChange('idCardFrontUrl')}
-          required
-        />
-        <ImageFieldRow
-          icon={CreditCard}
-          label="身份证反面"
-          value={form.idCardBackUrl || ''}
-          editing={editing} onChange={handleFieldChange('idCardBackUrl')}
-          required
-        />
+
         <p className="text-xs text-gray-400 mt-2">
           身份证信息仅用于平台实名认证，不会公开显示，请放心上传
         </p>
@@ -669,6 +927,26 @@ const ProfilePage = () => {
             </div>
           </div>
         </section>
+      )}
+
+      {/* 我的邀请人 */}
+      {user.inviterId && (
+        <div className="bg-white rounded-2xl shadow-sm p-4 mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center text-orange-500">
+              <User size={20} />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-gray-500">我的邀请人</p>
+              <p className="text-sm font-medium text-gray-900">
+                {user.inviterNickname || '未知'}
+                {user.inviterPhone && (
+                  <span className="text-gray-500 ml-2">{user.inviterPhone}</span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 邀请码入口 */}

@@ -17,10 +17,10 @@ exports.UpgradeService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const api_interface_1 = require("@shared/api.interface");
-const schema_1 = require("@server/database/schema");
+const api_interface_1 = require("../../../shared/api.interface");
+const schema_1 = require("../../database/schema");
 const common_2 = require("@nestjs/common");
-const auth_util_1 = require("@server/common/utils/auth.util");
+const auth_util_1 = require("../../common/utils/auth.util");
 const LEVEL_ORDER = [
     api_interface_1.LEVELS.JUNIOR,
     api_interface_1.LEVELS.LEVEL_4,
@@ -48,14 +48,14 @@ function buildTaskDefs(mallAmount, inviterAmount, parentAmount, grandParentAmoun
         {
             taskIndex: 2,
             taskType: api_interface_1.TASK_TYPE.CONSULT_SERVICE,
-            title: `向直接上级购买${parentAmount}元咨询服务`,
+            title: `向上级购买${parentAmount}元咨询服务`,
             amount: parentAmount,
             targetKind: 'ancestor_1',
         },
         {
             taskIndex: 3,
             taskType: api_interface_1.TASK_TYPE.CONSULT_SERVICE,
-            title: `向树上上级购买${grandParentAmount}元咨询服务`,
+            title: `向上上级购买${grandParentAmount}元咨询服务`,
             amount: grandParentAmount,
             targetKind: 'ancestor_2',
         },
@@ -64,7 +64,7 @@ function buildTaskDefs(mallAmount, inviterAmount, parentAmount, grandParentAmoun
         defs.push({
             taskIndex: 4,
             taskType: api_interface_1.TASK_TYPE.CONSULT_SERVICE,
-            title: `向树上上上级购买${greatGrandParentAmount}元咨询服务`,
+            title: `向上上上级购买${greatGrandParentAmount}元咨询服务`,
             amount: greatGrandParentAmount,
             targetKind: 'ancestor_3',
         });
@@ -177,6 +177,16 @@ let UpgradeService = UpgradeService_1 = class UpgradeService {
             throw new common_2.NotFoundException('任务不存在');
         }
         return this.mapTaskInfo(updated[0]);
+    }
+    async resetUserTasks(userId) {
+        const result = await this.db
+            .delete(schema_1.upgradeTasks)
+            .where((0, drizzle_orm_1.eq)(schema_1.upgradeTasks.userId, userId));
+        this.logger.log(`User ${userId} reset upgrade tasks, deleted ${result.count} rows`);
+        return {
+            success: true,
+            message: `已删除 ${result.count} 条升级任务，下次访问任务中心时会重新生成`,
+        };
     }
     async checkMallTaskComplete(userId, mallOrderId, totalAmount) {
         const inProgressTasks = await this.db
@@ -317,7 +327,7 @@ let UpgradeService = UpgradeService_1 = class UpgradeService {
                 targetId = user?.inviterId ?? null;
             }
             else if (def.targetKind === 'ancestor_1') {
-                targetId = teamRow?.parentId ?? null;
+                targetId = this.getAncestorFromPath(teamRow?.path, 1) ?? null;
             }
             else if (def.targetKind === 'ancestor_2') {
                 targetId = this.getAncestorFromPath(teamRow?.path, 2) ?? null;
@@ -349,9 +359,10 @@ let UpgradeService = UpgradeService_1 = class UpgradeService {
         if (!path || path.length <= 2)
             return null;
         const segments = path.split(',').filter((s) => s.length > 0);
-        if (segments.length < level)
+        const index = segments.length - level - 1;
+        if (index < 0)
             return null;
-        return segments[segments.length - level] ?? null;
+        return segments[index] ?? null;
     }
     async getAncestorUserId(userId, level) {
         const teamRow = (await this.db

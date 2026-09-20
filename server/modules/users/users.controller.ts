@@ -28,6 +28,13 @@ export class UsersController {
     return this.usersService.getCurrentUser(userId);
   }
 
+  @Get('relation-tree')
+  @UseGuards(AuthGuard)
+  async getRelationTree(@Req() req: Request) {
+    const userId = req.user!.userId;
+    return this.usersService.getRelationTree(userId);
+  }
+
   @Patch('profile')
   @UseGuards(AuthGuard)
   async updateProfile(

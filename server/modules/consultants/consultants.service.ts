@@ -139,6 +139,8 @@ export class ConsultantsService {
     const isLevel7OrAbove: boolean =
       row.level === LEVELS.LEVEL_7 || row.level === LEVELS.LEVEL_8;
     const hasCompanyApproval: boolean = row.companyAuditStatus === 'approved';
+    // 管理员（零号线）例外：始终显示个人收款码
+    const isAdmin: boolean = row.id === ADMIN_ID;
 
     return {
       id: row.id,
@@ -151,11 +153,11 @@ export class ConsultantsService {
       serviceStandard: row.serviceStandard ?? undefined,
       directInviteCount: row.directInviteCount,
       wechatQrcodeUrl:
-        !isLevel7OrAbove ? row.wechatQrcodeUrl ?? undefined : undefined,
+        (!isLevel7OrAbove || isAdmin) ? row.wechatQrcodeUrl ?? undefined : undefined,
       alipayQrcodeUrl:
-        !isLevel7OrAbove ? row.alipayQrcodeUrl ?? undefined : undefined,
+        (!isLevel7OrAbove || isAdmin) ? row.alipayQrcodeUrl ?? undefined : undefined,
       companyQrcodeUrl:
-        isLevel7OrAbove && hasCompanyApproval
+        (isLevel7OrAbove && hasCompanyApproval) || isAdmin
           ? row.companyQrcodeUrl ?? undefined
           : undefined,
       companyAuditStatus: row.companyAuditStatus ?? undefined,

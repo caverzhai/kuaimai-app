@@ -17,10 +17,10 @@ exports.AdminService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const schema_1 = require("@server/database/schema");
-const products_service_1 = require("@server/modules/products/products.service");
-const upgrade_service_1 = require("@server/modules/upgrade/upgrade.service");
-const api_interface_1 = require("@shared/api.interface");
+const schema_1 = require("../../database/schema");
+const products_service_1 = require("../products/products.service");
+const upgrade_service_1 = require("../upgrade/upgrade.service");
+const api_interface_1 = require("../../../shared/api.interface");
 let AdminService = AdminService_1 = class AdminService {
     db;
     productsService;
@@ -157,6 +157,13 @@ let AdminService = AdminService_1 = class AdminService {
             }
         }
         const now = new Date();
+        const autoDeliveryDeadline = new Date(now);
+        if (isNoLogistics) {
+            autoDeliveryDeadline.setMinutes(autoDeliveryDeadline.getMinutes() + 20);
+        }
+        else {
+            autoDeliveryDeadline.setDate(autoDeliveryDeadline.getDate() + 15);
+        }
         const updated = await this.db
             .update(schema_1.mallOrders)
             .set({
@@ -164,10 +171,11 @@ let AdminService = AdminService_1 = class AdminService {
             logisticsCompany: dto.logisticsCompany,
             logisticsNo: isNoLogistics ? null : dto.logisticsNo,
             shippedAt: now,
+            autoDeliveryDeadline,
         })
             .where((0, drizzle_orm_1.eq)(schema_1.mallOrders.id, id))
             .returning();
-        this.logger.log(`商城订单发货: orderId=${id}, 无需物流=${isNoLogistics}`);
+        this.logger.log(`鍟嗗煄璁㈠崟鍙戣揣: orderId=${id}, 鏃犻渶鐗╂祦=${isNoLogistics}`);
         return this.toMallOrderInfo(updated[0]);
     }
     async cancelMallOrder(id) {
@@ -185,11 +193,11 @@ let AdminService = AdminService_1 = class AdminService {
             .set({
             status: api_interface_1.MALL_ORDER_STATUS.CANCELLED,
             cancelledAt: now,
-            cancelReason: '后台取消',
+            cancelReason: '鍚庡彴鍙栨秷',
         })
             .where((0, drizzle_orm_1.eq)(schema_1.mallOrders.id, id))
             .returning();
-        this.logger.log(`后台取消商城订单: orderId=${id}`);
+        this.logger.log(`鍚庡彴鍙栨秷鍟嗗煄璁㈠崟: orderId=${id}`);
         return this.toMallOrderInfo(updated[0]);
     }
     toUserInfo(user) {
@@ -262,6 +270,25 @@ let AdminService = AdminService_1 = class AdminService {
             throw new common_1.NotFoundException('用户不存在');
         return this.toUserInfo(userRows[0]);
     }
+    async updateUserPhone(id, newPhone) {
+        if (!/^1\d{10}$/.test(newPhone)) {
+            throw new common_1.BadRequestException('手机号格式不正确，必须是11位数字');
+        }
+        const existing = await this.db.select().from(schema_1.users).where((0, drizzle_orm_1.eq)(schema_1.users.phone, newPhone)).limit(1);
+        if (existing.length > 0 && existing[0].id !== id) {
+            throw new common_1.ConflictException('该手机号已被其他用户使用');
+        }
+        const userRows = await this.db.select().from(schema_1.users).where((0, drizzle_orm_1.eq)(schema_1.users.id, id)).limit(1);
+        if (userRows.length === 0)
+            throw new common_1.NotFoundException('用户不存在');
+        const updated = await this.db
+            .update(schema_1.users)
+            .set({ phone: newPhone })
+            .where((0, drizzle_orm_1.eq)(schema_1.users.id, id))
+            .returning();
+        this.logger.log(`管理员修改用户手机号: userId=${id}, oldPhone=${userRows[0].phone}, newPhone=${newPhone}`);
+        return this.toUserInfo(updated[0]);
+    }
     async getCompanyAuditList(params) {
         const page = params.page ?? 1;
         const pageSize = params.pageSize ?? 20;
@@ -298,7 +325,7 @@ let AdminService = AdminService_1 = class AdminService {
             const lastTaskRows = await this.db
                 .select()
                 .from(schema_1.upgradeTasks)
-                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.upgradeTasks.userId, id), (0, drizzle_orm_1.eq)(schema_1.upgradeTasks.toLevel, api_interface_1.LEVELS.LEVEL_7)))
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.upgradeTasks.toLevel, api_interface_1.LEVELS.LEVEL_7)))
                 .orderBy((0, drizzle_orm_1.desc)(schema_1.upgradeTasks.taskIndex))
                 .limit(1);
             const lastTask = lastTaskRows[0];
@@ -311,7 +338,7 @@ let AdminService = AdminService_1 = class AdminService {
                 })
                     .where((0, drizzle_orm_1.eq)(schema_1.users.id, id))
                     .returning();
-                this.logger.log(`公司资质审核通过并升级: userId=${id}, level=${api_interface_1.LEVELS.LEVEL_8}`);
+                this.logger.log(`鍏徃璧勮川瀹℃牳閫氳繃骞跺崌绾? userId=${id}, level=${api_interface_1.LEVELS.LEVEL_8}`);
                 return this.toUserInfo(updated[0]);
             }
         }
@@ -320,7 +347,7 @@ let AdminService = AdminService_1 = class AdminService {
             .set({ companyAuditStatus: newStatus })
             .where((0, drizzle_orm_1.eq)(schema_1.users.id, id))
             .returning();
-        this.logger.log(`公司资质审核: userId=${id}, passed=${dto.passed}`);
+        this.logger.log(`鍏徃璧勮川瀹℃牳: userId=${id}, passed=${dto.passed}`);
         return this.toUserInfo(updated[0]);
     }
     async getPlatformQrcode(type) {
@@ -361,7 +388,7 @@ let AdminService = AdminService_1 = class AdminService {
             })
                 .returning();
             const qr = inserted[0];
-            this.logger.log(`创建平台收款码: type=${type}`);
+            this.logger.log(`鍒涘缓骞冲彴鏀舵鐮? type=${type}`);
             return {
                 id: qr.id,
                 type: qr.type,
@@ -383,7 +410,7 @@ let AdminService = AdminService_1 = class AdminService {
             .where((0, drizzle_orm_1.eq)(schema_1.platformQrcodes.type, type))
             .returning();
         const qr = updated[0];
-        this.logger.log(`更新平台收款码: type=${type}`);
+        this.logger.log(`鏇存柊骞冲彴鏀舵鐮? type=${type}`);
         return {
             id: qr.id,
             type: qr.type,

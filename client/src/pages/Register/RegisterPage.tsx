@@ -43,6 +43,10 @@ const RegisterPage = () => {
   const handleScanInviteCode = () => {
     setShowScanner(true);
     setError('');
+    // 弹窗显示后自动启动摄像头
+    setTimeout(() => {
+      startScanner();
+    }, 300);
   };
 
   // 启动摄像头扫码
@@ -279,15 +283,16 @@ const RegisterPage = () => {
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value)}
                     placeholder="请输入邀请码"
-                    className="w-full pl-10 pr-12 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-colors text-sm"
+                    className="w-full pl-10 pr-20 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-colors text-sm"
                   />
                   <button
                     type="button"
                     onClick={handleScanInviteCode}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-medium"
                     title="扫码输入邀请码"
                   >
-                    <QrCode size={20} />
+                    <QrCode size={16} />
+                    <span>扫码</span>
                   </button>
                 </div>
               </div>
@@ -340,7 +345,7 @@ const RegisterPage = () => {
               onClick={startScanner}
               className="w-full mt-4 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl"
             >
-              开始扫码
+              重新扫码
             </button>
           </div>
         </div>

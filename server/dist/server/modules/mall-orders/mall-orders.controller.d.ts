@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import { MallOrdersService } from './mall-orders.service';
-import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '@shared/api.interface';
+import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '../../../shared/api.interface';
 export declare class MallOrdersController {
     private readonly mallOrdersService;
     constructor(mallOrdersService: MallOrdersService);
@@ -9,4 +9,6 @@ export declare class MallOrdersController {
     getDetail(req: Request, id: string): Promise<MallOrderInfo>;
     uploadPayment(req: Request, id: string, dto: PaymentScreenshotDTO): Promise<MallOrderInfo>;
     confirmDelivery(req: Request, id: string): Promise<MallOrderInfo>;
+    confirmPayment(req: Request, id: string): Promise<MallOrderInfo>;
+    getAllOrders(req: Request, page?: string, pageSize?: string, status?: string): Promise<MallOrderListResponse>;
 }

@@ -1,0 +1,30 @@
+{
+	"appId": "com.kuaimai.app",
+	"appName": "快卖",
+	"version": "2.25.1",
+	"webDir": "dist",
+	"bundledWebRuntime": false,
+	"androidScheme": "http",
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 1500,
+			"backgroundColor": "#f97316",
+			"androidSplashResourceName": "splash",
+			"showSpinner": false,
+			"launchAutoHide": true
+		},
+		"StatusBar": {
+			"style": "light",
+			"backgroundColor": "#f97316"
+		}
+	},
+	"packageClassList": [
+		"HttpPlugin",
+		"AppPlugin",
+		"HapticsPlugin",
+		"KeyboardPlugin",
+		"PreferencesPlugin",
+		"SplashScreenPlugin",
+		"StatusBarPlugin"
+	]
+}

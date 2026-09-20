@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -64,10 +65,40 @@ export class ChatRoomsController {
     return this.chatRoomsService.rejectApplication(req.user!.userId, id);
   }
 
+  // 用户删除自己的申请记录
+  @Delete('applications/:id')
+  async deleteApplication(@Param('id') id: string, @Req() req: Request) {
+    return this.chatRoomsService.deleteApplication(id, req.user!.userId, req.user!.phone);
+  }
+
+  // 管理员：获取所有聊天室（包括已结束的）
+  @Get('admin/all')
+  async getAllRoomsForAdmin(@Req() req: Request) {
+    if (req.user!.phone !== '13800000000') {
+      throw new ForbiddenException('仅管理员可访问');
+    }
+    return this.chatRoomsService.getAllRoomsForAdmin();
+  }
+
+  // 管理员：删除聊天室
+  @Delete('admin/:id')
+  async deleteRoomByAdmin(@Param('id') id: string, @Req() req: Request) {
+    if (req.user!.phone !== '13800000000') {
+      throw new ForbiddenException('仅管理员可操作');
+    }
+    return this.chatRoomsService.deleteRoomByAdmin(id, req.user!.phone);
+  }
+
   // 获取聊天室详情
   @Get(':id')
   async getRoomDetail(@Param('id') id: string, @Req() req: Request) {
     return this.chatRoomsService.getRoomDetail(id, req.user!.userId);
+  }
+
+  // 获取聊天室成员列表
+  @Get(':id/members')
+  async getRoomMembers(@Param('id') id: string, @Req() req: Request) {
+    return this.chatRoomsService.getRoomMembers(id, req.user!.userId);
   }
 
   // 禁言用户
@@ -140,7 +171,7 @@ export class ChatRoomsController {
   // 关闭聊天室
   @Post(':id/close')
   async closeRoom(@Param('id') id: string, @Req() req: Request) {
-    return this.chatRoomsService.closeRoom(id, req.user!.phone);
+    return this.chatRoomsService.closeRoom(id, req.user!.phone, req.user!.userId);
   }
 
   // 屏蔽词列表

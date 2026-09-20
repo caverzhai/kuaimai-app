@@ -9,8 +9,8 @@ client/android/app/build/
 client/ios/App/build/
 client/ios/Pods/
 *.ipa
-*.apk
 *.aab
+!server/public/download/*.apk
 
 # Environment
 .env

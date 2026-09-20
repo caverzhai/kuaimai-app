@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.usersTable = exports.upgradeTasksTable = exports.teamRelationsTable = exports.productsTable = exports.productCategoriesTable = exports.platformQrcodesTable = exports.mallOrdersTable = exports.inviteRecordsTable = exports.industriesTable = exports.consultOrdersTable = exports.users = exports.products = exports.mallOrders = exports.consultOrders = exports.upgradeTasks = exports.teamRelations = exports.platformQrcodes = exports.inviteRecords = exports.productCategories = exports.industries = exports.fileAttachmentArray = exports.userProfileArray = exports.fileAttachment = exports.userProfile = exports.customTimestamptz = void 0;
+exports.friends = exports.chatMicRequests = exports.chatMicSlots = exports.chatBlockedWords = exports.chatMessages = exports.chatRoomApplications = exports.chatRoomMembers = exports.chatRooms = exports.usersTable = exports.upgradeTasksTable = exports.teamRelationsTable = exports.productsTable = exports.productCategoriesTable = exports.platformQrcodesTable = exports.mallOrdersTable = exports.inviteRecordsTable = exports.industriesTable = exports.consultOrdersTable = exports.users = exports.products = exports.mallOrders = exports.consultOrders = exports.upgradeTasks = exports.teamRelations = exports.platformQrcodes = exports.inviteRecords = exports.productCategories = exports.industries = exports.fileAttachmentArray = exports.userProfileArray = exports.fileAttachment = exports.userProfile = exports.customTimestamptz = void 0;
 exports.escapeLiteral = escapeLiteral;
 const drizzle_orm_1 = require("drizzle-orm");
 const pg_core_1 = require("drizzle-orm/pg-core");
@@ -174,6 +174,7 @@ exports.consultOrders = (0, pg_core_1.pgTable)("consult_orders", {
     taskLevelFrom: (0, pg_core_1.varchar)("task_level_from", { length: 20 }),
     taskLevelTo: (0, pg_core_1.varchar)("task_level_to", { length: 20 }),
     taskIndex: (0, pg_core_1.integer)("task_index"),
+    taskId: (0, pg_core_1.varchar)("task_id", { length: 100 }),
     status: (0, pg_core_1.varchar)("status", { length: 30 }).notNull().default('pending_payment'),
     paymentScreenshotUrl: (0, pg_core_1.text)("payment_screenshot_url"),
     paymentConfirmedAt: (0, exports.customTimestamptz)("payment_confirmed_at", { precision: 3 }),
@@ -183,7 +184,7 @@ exports.consultOrders = (0, pg_core_1.pgTable)("consult_orders", {
     reviewRemark: (0, pg_core_1.text)("review_remark"),
     isOverflow: (0, pg_core_1.boolean)("is_overflow").notNull().default(false),
     overflowToGroup: (0, pg_core_1.boolean)("overflow_to_group").notNull().default(false),
-    autoConfirmDeadline: (0, exports.customTimestamptz)("auto_confirm_deadline", { precision: 3 }),
+    autoConfirmDeadline: (0, exports.customTimestamptz)('auto_confirm_deadline', { precision: 3 }),
     createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
     updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -214,7 +215,8 @@ exports.mallOrders = (0, pg_core_1.pgTable)("mall_orders", {
     deliveredAt: (0, exports.customTimestamptz)("delivered_at", { precision: 3 }),
     cancelReason: (0, pg_core_1.text)("cancel_reason"),
     cancelledAt: (0, exports.customTimestamptz)("cancelled_at", { precision: 3 }),
-    autoConfirmDeadline: (0, exports.customTimestamptz)("auto_confirm_deadline", { precision: 3 }),
+    autoConfirmDeadline: (0, exports.customTimestamptz)('auto_confirm_deadline', { precision: 3 }),
+    autoDeliveryDeadline: (0, exports.customTimestamptz)('auto_delivery_deadline', { precision: 3 }),
     createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
     updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -262,6 +264,9 @@ exports.users = (0, pg_core_1.pgTable)("users", {
     realName: (0, pg_core_1.varchar)("real_name", { length: 50 }),
     wechatId: (0, pg_core_1.varchar)("wechat_id", { length: 100 }),
     idCardFrontUrl: (0, pg_core_1.text)("id_card_front_url"),
+    idCardBackUrl: (0, pg_core_1.text)("id_card_back_url"),
+    idCardNumber: (0, pg_core_1.varchar)("id_card_number", { length: 20 }),
+    address: (0, pg_core_1.text)("address"),
     wechatQrcodeUrl: (0, pg_core_1.text)("wechat_qrcode_url"),
     alipayQrcodeUrl: (0, pg_core_1.text)("alipay_qrcode_url"),
     companyQrcodeUrl: (0, pg_core_1.text)("company_qrcode_url"),
@@ -296,4 +301,109 @@ exports.productsTable = exports.products;
 exports.teamRelationsTable = exports.teamRelations;
 exports.upgradeTasksTable = exports.upgradeTasks;
 exports.usersTable = exports.users;
+exports.chatRooms = (0, pg_core_1.pgTable)("chat_rooms", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    name: (0, pg_core_1.varchar)("name", { length: 100 }).notNull(),
+    description: (0, pg_core_1.text)("description"),
+    type: (0, pg_core_1.varchar)("type", { length: 20 }).notNull().default('public'),
+    createdBy: (0, pg_core_1.uuid)("created_by").notNull(),
+    maxMicCount: (0, pg_core_1.integer)("max_mic_count").notNull().default(3),
+    isActive: (0, pg_core_1.boolean)("is_active").notNull().default(true),
+    scheduledStartTime: (0, exports.customTimestamptz)("scheduled_start_time", { precision: 3 }),
+    scheduledEndTime: (0, exports.customTimestamptz)("scheduled_end_time", { precision: 3 }),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+    updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.index)("idx_chat_rooms_type").on(table.type),
+    (0, pg_core_1.index)("idx_chat_rooms_is_active").on(table.isActive),
+]);
+exports.chatRoomMembers = (0, pg_core_1.pgTable)("chat_room_members", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    roomId: (0, pg_core_1.uuid)("room_id").notNull(),
+    userId: (0, pg_core_1.uuid)("user_id").notNull(),
+    role: (0, pg_core_1.varchar)("role", { length: 20 }).notNull().default('member'),
+    isMuted: (0, pg_core_1.boolean)("is_muted").notNull().default(false),
+    isBlocked: (0, pg_core_1.boolean)("is_blocked").notNull().default(false),
+    joinedAt: (0, exports.customTimestamptz)("joined_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.uniqueIndex)("chat_room_members_room_user_key").on(table.roomId, table.userId),
+    (0, pg_core_1.index)("idx_chat_room_members_room_id").on(table.roomId),
+    (0, pg_core_1.index)("idx_chat_room_members_user_id").on(table.userId),
+]);
+exports.chatRoomApplications = (0, pg_core_1.pgTable)("chat_room_applications", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    userId: (0, pg_core_1.uuid)("user_id").notNull(),
+    roomName: (0, pg_core_1.varchar)("room_name", { length: 50 }).notNull(),
+    description: (0, pg_core_1.varchar)("description", { length: 200 }).notNull(),
+    usageTime: (0, pg_core_1.varchar)("usage_time", { length: 100 }).notNull(),
+    contactPhone: (0, pg_core_1.varchar)("contact_phone", { length: 20 }).notNull(),
+    scheduledStartTime: (0, exports.customTimestamptz)("scheduled_start_time", { precision: 3 }),
+    scheduledEndTime: (0, exports.customTimestamptz)("scheduled_end_time", { precision: 3 }),
+    status: (0, pg_core_1.varchar)("status", { length: 20 }).notNull().default('pending'),
+    approvedBy: (0, pg_core_1.uuid)("approved_by"),
+    roomId: (0, pg_core_1.uuid)("room_id"),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+    updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.index)("idx_chat_room_applications_user_id").on(table.userId),
+    (0, pg_core_1.index)("idx_chat_room_applications_status").on(table.status),
+    (0, pg_core_1.index)("idx_chat_room_applications_created_at").on(table.createdAt),
+]);
+exports.chatMessages = (0, pg_core_1.pgTable)("chat_messages", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    roomId: (0, pg_core_1.uuid)("room_id").notNull(),
+    userId: (0, pg_core_1.uuid)("user_id").notNull(),
+    type: (0, pg_core_1.varchar)("type", { length: 20 }).notNull().default('text'),
+    content: (0, pg_core_1.text)("content"),
+    duration: (0, pg_core_1.integer)("duration"),
+    expiresAt: (0, exports.customTimestamptz)("expires_at", { precision: 3 }).notNull(),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.index)("idx_chat_messages_room_id").on(table.roomId),
+    (0, pg_core_1.index)("idx_chat_messages_expires_at").on(table.expiresAt),
+    (0, pg_core_1.index)("idx_chat_messages_created_at").on(table.createdAt),
+]);
+exports.chatBlockedWords = (0, pg_core_1.pgTable)("chat_blocked_words", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    word: (0, pg_core_1.varchar)("word", { length: 50 }).notNull(),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.uniqueIndex)("chat_blocked_words_word_key").on(table.word),
+]);
+exports.chatMicSlots = (0, pg_core_1.pgTable)("chat_mic_slots", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    roomId: (0, pg_core_1.uuid)("room_id").notNull(),
+    userId: (0, pg_core_1.uuid)("user_id").notNull(),
+    slotIndex: (0, pg_core_1.integer)("slot_index").notNull(),
+    isActive: (0, pg_core_1.boolean)("is_active").notNull().default(true),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.uniqueIndex)("chat_mic_slots_room_slot_key").on(table.roomId, table.slotIndex),
+    (0, pg_core_1.index)("idx_chat_mic_slots_room_id").on(table.roomId),
+    (0, pg_core_1.index)("idx_chat_mic_slots_user_id").on(table.userId),
+]);
+exports.chatMicRequests = (0, pg_core_1.pgTable)("chat_mic_requests", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    roomId: (0, pg_core_1.uuid)("room_id").notNull(),
+    userId: (0, pg_core_1.uuid)("user_id").notNull(),
+    status: (0, pg_core_1.varchar)("status", { length: 20 }).notNull().default('pending'),
+    approvedBy: (0, pg_core_1.uuid)("approved_by"),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+    updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.index)("idx_chat_mic_requests_room_id").on(table.roomId),
+    (0, pg_core_1.index)("idx_chat_mic_requests_user_id").on(table.userId),
+    (0, pg_core_1.index)("idx_chat_mic_requests_status").on(table.status),
+]);
+exports.friends = (0, pg_core_1.pgTable)("friends", {
+    id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),
+    userId: (0, pg_core_1.uuid)("user_id").notNull(),
+    friendId: (0, pg_core_1.uuid)("friend_id").notNull(),
+    status: (0, pg_core_1.varchar)("status", { length: 20 }).notNull().default('pending'),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+}, (table) => [
+    (0, pg_core_1.uniqueIndex)("friends_user_friend_key").on(table.userId, table.friendId),
+    (0, pg_core_1.index)("idx_friends_user_id").on(table.userId),
+    (0, pg_core_1.index)("idx_friends_friend_id").on(table.friendId),
+]);
 //# sourceMappingURL=schema.js.map

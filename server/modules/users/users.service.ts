@@ -12,7 +12,7 @@ import type {
   UserRegisterDTO,
 } from '@shared/api.interface';
 import { LEVELS } from '@shared/api.interface';
-import { users, teamRelations, inviteRecords } from '@server/database/schema';
+import { users, teamRelations, inviteRecords, upgradeTasks } from '@server/database/schema';
 import {
   generateInviteCode,
   generateToken,
@@ -179,7 +179,12 @@ export class UsersService {
     });
 
     const token = this.makeToken(result);
-    return { token, user: this.toUserInfo(result) };
+    const userInfo = this.toUserInfo(result);
+    if (inviter) {
+      userInfo.inviterNickname = inviter.nickname;
+      userInfo.inviterPhone = inviter.phone;
+    }
+    return { token, user: userInfo };
   }
 
   // ── Login ─────────────────────────────────────────────────────
@@ -201,7 +206,20 @@ export class UsersService {
     }
 
     const token = this.makeToken(user);
-    return { token, user: this.toUserInfo(user) };
+    const userInfo = this.toUserInfo(user);
+    // 关联查询邀请人信息
+    if (user.inviterId) {
+      const inviterRows = await this.db
+        .select({ nickname: users.nickname, phone: users.phone })
+        .from(users)
+        .where(eq(users.id, user.inviterId))
+        .limit(1);
+      if (inviterRows.length > 0) {
+        userInfo.inviterNickname = inviterRows[0].nickname;
+        userInfo.inviterPhone = inviterRows[0].phone;
+      }
+    }
+    return { token, user: userInfo };
   }
 
   // ── Current user ──────────────────────────────────────────────
@@ -217,7 +235,140 @@ export class UsersService {
       throw new NotFoundException('用户不存在');
     }
 
-    return this.toUserInfo(userRows[0]);
+    let user = userRows[0];
+
+    // 自动解除900元门槛限制：直推人数达到3人及以上，或升级到5级及以上时自动解除
+    if (user.thresholdBlocked && (user.directInviteCount >= 3 || user.level !== 'level_4')) {
+      const pendingAmount = Number(user.pendingReclaimAmount) || 0;
+      const incomeNum = Number(user.totalConsultIncome) || 0;
+      const newTotalIncome = incomeNum + pendingAmount;
+      await this.db
+        .update(users)
+        .set({
+          thresholdBlocked: false,
+          thresholdTriggeredAt: null,
+          pendingReclaimAmount: '0',
+          totalConsultIncome: newTotalIncome.toFixed(2),
+        })
+        .where(eq(users.id, userId));
+      this.logger.log(
+        `用户登录时自动解除900元门槛: userId=${userId}, level=${user.level}, ` +
+          `directInviteCount=${user.directInviteCount}, ` +
+          `返还暂存金额=${pendingAmount}`,
+      );
+      // 重新查询用户信息
+      const refreshedRows = await this.db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (refreshedRows.length > 0) {
+        user = refreshedRows[0];
+      }
+    }
+
+    const userInfo = this.toUserInfo(user);
+
+    // 关联查询邀请人信息
+    if (user.inviterId) {
+      const inviterRows = await this.db
+        .select({ nickname: users.nickname, phone: users.phone })
+        .from(users)
+        .where(eq(users.id, user.inviterId))
+        .limit(1);
+      if (inviterRows.length > 0) {
+        userInfo.inviterNickname = inviterRows[0].nickname;
+        userInfo.inviterPhone = inviterRows[0].phone;
+      }
+    }
+
+    return userInfo;
+  }
+
+  // 获取用户关系树（上级+下级）
+  async getRelationTree(userId: string): Promise<{
+    // 上级关系
+    directInviter: { id: string; nickname: string; phone: string; level: string } | null;
+    directParent: { id: string; nickname: string; phone: string; level: string } | null;
+    // 下级关系（可能有多个）
+    directChildren: Array<{ id: string; nickname: string; phone: string; level: string }>;
+    secondGenerationChildren: Array<{ id: string; nickname: string; phone: string; level: string }>;
+    thirdGenerationChildren: Array<{ id: string; nickname: string; phone: string; level: string }>;
+  }> {
+    const userRows = await this.db
+      .select({ inviterId: users.inviterId, parentId: users.parentId })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (userRows.length === 0) {
+      throw new NotFoundException('用户不存在');
+    }
+
+    const user = userRows[0];
+    const result = {
+      directInviter: null,
+      directParent: null,
+      directChildren: [],
+      secondGenerationChildren: [],
+      thirdGenerationChildren: [],
+    };
+
+    // 辅助函数：根据ID获取用户简要信息
+    const getUserBrief = async (id: string | null) => {
+      if (!id) return null;
+      const rows = await this.db
+        .select({ id: users.id, nickname: users.nickname, phone: users.phone, level: users.level })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      return rows.length > 0 ? rows[0] : null;
+    };
+
+    // 辅助函数：根据parentId获取所有下级用户
+    const getChildrenByParentId = async (parentId: string) => {
+      const rows = await this.db
+        .select({ id: users.id, nickname: users.nickname, phone: users.phone, level: users.level })
+        .from(users)
+        .where(eq(users.parentId, parentId));
+      return rows;
+    };
+
+    // ===== 上级关系 =====
+    // a. 我的直接邀请人
+    result.directInviter = await getUserBrief(user.inviterId);
+
+    // b. 我的直接上级咨询师（上一代）
+    result.directParent = await getUserBrief(user.parentId);
+
+    // ===== 下级关系 =====
+    // c. 我的直接下一代咨询师
+    const directChildren = await getChildrenByParentId(userId);
+    result.directChildren = directChildren;
+
+    // d. 我的下二代咨询师
+    if (directChildren.length > 0) {
+      const directChildIds = directChildren.map(c => c.id);
+      const secondGenChildren = [];
+      for (const childId of directChildIds) {
+        const children = await getChildrenByParentId(childId);
+        secondGenChildren.push(...children);
+      }
+      result.secondGenerationChildren = secondGenChildren;
+
+      // e. 我的下三代咨询师
+      if (secondGenChildren.length > 0) {
+        const secondGenChildIds = secondGenChildren.map(c => c.id);
+        const thirdGenChildren = [];
+        for (const childId of secondGenChildIds) {
+          const children = await getChildrenByParentId(childId);
+          thirdGenChildren.push(...children);
+        }
+        result.thirdGenerationChildren = thirdGenChildren;
+      }
+    }
+
+    return result;
   }
 
   // ── Update profile ────────────────────────────────────────────
@@ -245,6 +396,31 @@ export class UsersService {
     if (dto.idCardBackUrl !== undefined) patch.idCardBackUrl = dto.idCardBackUrl;
     if (dto.realName !== undefined) patch.realName = dto.realName;
     if (dto.wechatId !== undefined) patch.wechatId = dto.wechatId;
+    if (dto.address !== undefined) patch.address = dto.address;
+
+    // 身份证号处理：格式校验、唯一性检查、自动判断性别
+    if (dto.idCardNumber !== undefined && dto.idCardNumber.trim() !== '') {
+      const idCard = dto.idCardNumber.trim().toUpperCase();
+      // 身份证号格式校验（18位，最后一位可以是X）
+      if (!/^\d{17}[\dX]$/.test(idCard)) {
+        throw new BadRequestException('身份证号格式不正确，必须是18位数字');
+      }
+      // 唯一性检查（排除当前用户）
+      const existing = await this.db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.idCardNumber, idCard))
+        .limit(1);
+      if (existing.length > 0 && existing[0].id !== userId) {
+        throw new ConflictException('该身份证号已被其他用户使用');
+      }
+      patch.idCardNumber = idCard;
+      // 根据身份证号自动判断性别（第17位，奇数为男，偶数为女）
+      const genderDigit = parseInt(idCard.charAt(16), 10);
+      if (!isNaN(genderDigit)) {
+        patch.gender = genderDigit % 2 === 1 ? '男' : '女';
+      }
+    }
 
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException('未提供可更新字段');
@@ -341,6 +517,12 @@ export class UsersService {
           treeLevel,
         })
         .where(eq(users.id, user.id));
+
+      // 删除已生成的升级任务（因为之前没有邀请人，targetId可能是管理员）
+      // 用户下次访问任务中心时会重新生成正确的任务
+      await tx
+        .delete(upgradeTasks)
+        .where(eq(upgradeTasks.userId, user.id));
 
       // 邀请人 direct_invite_count +1
       await tx
@@ -528,7 +710,9 @@ export class UsersService {
       businessLicenseUrl: user.businessLicenseUrl ?? undefined,
       idCardFrontUrl: user.idCardFrontUrl ?? undefined,
       idCardBackUrl: user.idCardBackUrl ?? undefined,
+      idCardNumber: user.idCardNumber ?? undefined,
       realName: user.realName ?? undefined,
+      address: user.address ?? undefined,
       wechatId: user.wechatId ?? undefined,
       companyAuditStatus: user.companyAuditStatus ?? undefined,
       totalConsultIncome: String(user.totalConsultIncome),

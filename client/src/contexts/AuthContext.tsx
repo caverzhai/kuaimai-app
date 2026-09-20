@@ -23,11 +23,13 @@ interface AuthContextType {
   }) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  updateUser: (newUser: UserInfo) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const TOKEN_KEY = 'kuaimai_token';
+const USER_CACHE_KEY = 'kuaimai_user_cache';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
@@ -39,19 +41,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    // 先设置Authorization头，再获取用户信息
+    // 先设置Authorization头
     axiosForBackend.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    
+    // 先从本地缓存读取用户信息，立即显示
+    const cachedUser = localStorage.getItem(USER_CACHE_KEY);
+    if (cachedUser) {
+      try {
+        setUser(JSON.parse(cachedUser));
+        setLoading(false);
+      } catch (e) {
+        // 缓存解析失败，忽略
+      }
+    }
+    
+    // 后台从服务器更新用户信息
     fetchUser();
+    
+    // 每5分钟定期刷新用户信息（确保级别等信息能更新）
+    const refreshTimer = setInterval(() => {
+      if (localStorage.getItem(TOKEN_KEY)) {
+        fetchUser();
+      }
+    }, 5 * 60 * 1000);
+    
+    return () => clearInterval(refreshTimer);
   }, []);
 
   async function fetchUser() {
     try {
       const data = await getCurrentUser();
       setUser(data as UserInfo);
+      // 缓存用户信息到本地
+      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(data));
     } catch (error) {
       logger.error('获取用户信息失败', error);
-      localStorage.removeItem(TOKEN_KEY);
-      setUser(null);
+      // 如果没有缓存用户，才清除token
+      if (!localStorage.getItem(USER_CACHE_KEY)) {
+        localStorage.removeItem(TOKEN_KEY);
+        setUser(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -60,6 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function login(phone: string, password: string) {
     const data = await apiLogin(phone, password);
     localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(USER_CACHE_KEY, JSON.stringify(data.user));
     setUser(data.user as UserInfo);
     axiosForBackend.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
   }
@@ -73,12 +103,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }) {
     const result = await apiRegister(data);
     localStorage.setItem(TOKEN_KEY, result.token);
+    localStorage.setItem(USER_CACHE_KEY, JSON.stringify(result.user));
     setUser(result.user as UserInfo);
     axiosForBackend.defaults.headers.common['Authorization'] = `Bearer ${result.token}`;
   }
 
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_CACHE_KEY);
     setUser(null);
     delete axiosForBackend.defaults.headers.common['Authorization'];
   }
@@ -87,8 +119,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchUser();
   }
 
+  // 直接更新用户信息（用于保存资料后立即更新状态，避免额外的网络请求）
+  function updateUser(newUser: UserInfo) {
+    setUser(newUser);
+    localStorage.setItem(USER_CACHE_KEY, JSON.stringify(newUser));
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

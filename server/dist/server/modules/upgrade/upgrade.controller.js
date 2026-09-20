@@ -14,7 +14,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UpgradeController = void 0;
 const common_1 = require("@nestjs/common");
-const auth_guard_1 = require("@server/common/guards/auth.guard");
+const auth_guard_1 = require("../../common/guards/auth.guard");
 const upgrade_service_1 = require("./upgrade.service");
 let UpgradeController = class UpgradeController {
     upgradeService;
@@ -28,6 +28,10 @@ let UpgradeController = class UpgradeController {
     async startTask(taskId, req) {
         const userId = req.user.userId;
         return this.upgradeService.startTask(taskId, userId);
+    }
+    async resetTasks(req) {
+        const userId = req.user.userId;
+        return this.upgradeService.resetUserTasks(userId);
     }
 };
 exports.UpgradeController = UpgradeController;
@@ -48,6 +52,14 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], UpgradeController.prototype, "startTask", null);
+__decorate([
+    (0, common_1.Delete)('tasks/reset'),
+    (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], UpgradeController.prototype, "resetTasks", null);
 exports.UpgradeController = UpgradeController = __decorate([
     (0, common_1.Controller)('api/upgrade'),
     __metadata("design:paramtypes", [upgrade_service_1.UpgradeService])

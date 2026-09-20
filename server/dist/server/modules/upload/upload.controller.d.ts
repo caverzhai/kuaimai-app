@@ -25,5 +25,18 @@ export declare class UploadController {
         size: number;
         message?: undefined;
     }>;
+    uploadAudio(body: UploadImageBody): Promise<{
+        success: boolean;
+        message: string;
+        url?: undefined;
+        filename?: undefined;
+        size?: undefined;
+    } | {
+        success: boolean;
+        url: string;
+        filename: string;
+        size: number;
+        message?: undefined;
+    }>;
 }
 export {};

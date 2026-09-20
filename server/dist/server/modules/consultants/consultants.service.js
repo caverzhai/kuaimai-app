@@ -17,8 +17,8 @@ exports.ConsultantsService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const schema_1 = require("@server/database/schema");
-const api_interface_1 = require("@shared/api.interface");
+const schema_1 = require("../../database/schema");
+const api_interface_1 = require("../../../shared/api.interface");
 let ConsultantsService = ConsultantsService_1 = class ConsultantsService {
     db;
     logger = new common_1.Logger(ConsultantsService_1.name);
@@ -96,6 +96,7 @@ let ConsultantsService = ConsultantsService_1 = class ConsultantsService {
             nickname: schema_1.users.nickname,
             avatarUrl: schema_1.users.avatarUrl,
             level: schema_1.users.level,
+            phone: schema_1.users.phone,
             industry: schema_1.users.industry,
             qualification: schema_1.users.qualification,
             serviceStandard: schema_1.users.serviceStandard,
@@ -119,18 +120,20 @@ let ConsultantsService = ConsultantsService_1 = class ConsultantsService {
         }
         const isLevel7OrAbove = row.level === api_interface_1.LEVELS.LEVEL_7 || row.level === api_interface_1.LEVELS.LEVEL_8;
         const hasCompanyApproval = row.companyAuditStatus === 'approved';
+        const isAdmin = row.id === ADMIN_ID;
         return {
             id: row.id,
             nickname: row.nickname,
             avatarUrl: row.avatarUrl ?? undefined,
             level: row.level,
+            phone: row.phone,
             industry: row.industry ?? undefined,
             qualification: row.qualification ?? undefined,
             serviceStandard: row.serviceStandard ?? undefined,
             directInviteCount: row.directInviteCount,
-            wechatQrcodeUrl: !isLevel7OrAbove ? row.wechatQrcodeUrl ?? undefined : undefined,
-            alipayQrcodeUrl: !isLevel7OrAbove ? row.alipayQrcodeUrl ?? undefined : undefined,
-            companyQrcodeUrl: isLevel7OrAbove && hasCompanyApproval
+            wechatQrcodeUrl: (!isLevel7OrAbove || isAdmin) ? row.wechatQrcodeUrl ?? undefined : undefined,
+            alipayQrcodeUrl: (!isLevel7OrAbove || isAdmin) ? row.alipayQrcodeUrl ?? undefined : undefined,
+            companyQrcodeUrl: (isLevel7OrAbove && hasCompanyApproval) || isAdmin
                 ? row.companyQrcodeUrl ?? undefined
                 : undefined,
             companyAuditStatus: row.companyAuditStatus ?? undefined,

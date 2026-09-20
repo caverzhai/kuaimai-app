@@ -13,9 +13,9 @@ import {
   Settings,
   MessageCircle,
 } from 'lucide-react';
-import { getUpgradeCenter, getReceivedConsultOrders } from '../api';
+import { getUpgradeCenter, getReceivedConsultOrders, getMyConsultOrders } from '../api';
 import { TASK_STATUS, CONSULT_ORDER_STATUS, LEVEL_LAYERS } from '@shared/api.interface';
-import { playNewTaskSound, playReviewSound } from '../utils/notification-sound';
+import { playNewTaskSound, playReviewSound, playReviewCompleteSound } from '../utils/notification-sound';
 import { checkUpdate, downloadAndInstall, type VersionInfo } from '../utils/version';
 import MallPage from '../pages/Mall/MallPage';
 import ChatRoomListPage from '../pages/ChatRoom/ChatRoomListPage';
@@ -31,8 +31,10 @@ const Layout = () => {
   const location = useLocation();
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
+  const [completedOrderCount, setCompletedOrderCount] = useState(0);
   const prevTaskRef = useRef(0);
   const prevReviewRef = useRef(0);
+  const prevCompletedRef = useRef(0);
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -86,6 +88,19 @@ const Layout = () => {
       const reviewCount = (reviewResult as { total?: number }).total ||
         (reviewResult as { items?: unknown[] }).items?.length || 0;
       setPendingReviewCount(reviewCount);
+
+      // 已完成订单数（用于审核完成提示音）
+      try {
+        const myOrdersResult = await getMyConsultOrders({
+          status: CONSULT_ORDER_STATUS.COMPLETED,
+          pageSize: 50,
+        });
+        const completedCount = (myOrdersResult as { total?: number }).total ||
+          (myOrdersResult as { items?: unknown[] }).items?.length || 0;
+        setCompletedOrderCount(completedCount);
+      } catch {
+        // 静默失败
+      }
     } catch {
       // 静默失败
     }
@@ -100,18 +115,65 @@ const Layout = () => {
 
   // 新任务声音提醒
   useEffect(() => {
-    if (prevTaskRef.current > 0 && pendingTaskCount > prevTaskRef.current) {
+    if (pendingTaskCount > prevTaskRef.current) {
       playNewTaskSound();
+      // 同时振动提醒
+      if (navigator.vibrate) {
+        navigator.vibrate([200, 100, 200]);
+      }
     }
     prevTaskRef.current = pendingTaskCount;
   }, [pendingTaskCount, prevTaskRef]);
 
+  // 待审核声音提醒
   useEffect(() => {
-    if (prevReviewRef.current > 0 && pendingReviewCount > prevReviewRef.current) {
+    if (pendingReviewCount > prevReviewRef.current) {
       playReviewSound();
+      // 同时振动提醒
+      if (navigator.vibrate) {
+        navigator.vibrate([300, 100, 300]);
+      }
     }
     prevReviewRef.current = pendingReviewCount;
   }, [pendingReviewCount, prevReviewRef]);
+
+  // 审核完成声音提醒（用户的订单被审核通过时）
+  useEffect(() => {
+    if (completedOrderCount > prevCompletedRef.current) {
+      playReviewCompleteSound();
+      // 同时振动提醒
+      if (navigator.vibrate) {
+        navigator.vibrate([200, 100, 200, 100, 200]);
+      }
+    }
+    prevCompletedRef.current = completedOrderCount;
+  }, [completedOrderCount, prevCompletedRef]);
+
+  // 用户首次交互时激活音频上下文（移动端浏览器自动播放策略）
+  useEffect(() => {
+    const unlockAudio = () => {
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          if (ctx.state === 'suspended') {
+            ctx.resume();
+          }
+        }
+      } catch (e) {
+        // 静默失败
+      }
+      // 只需要激活一次
+      document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
+    };
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('touchstart', unlockAudio);
+    return () => {
+      document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
+    };
+  }, []);
 
   // 自动检查更新 - 仅在APP环境中检查，网页版不检查
   useEffect(() => {
@@ -244,17 +306,18 @@ const Layout = () => {
       {/* 主内容区 - 底部留出Dock栏空间 */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6 pb-24 md:pb-8 relative">
         {/* 缓存页面 - 始终保持挂载，用CSS控制显示，切换时50毫秒级响应 */}
+        {/* 只有可见页面才加载数据，不可见页面延迟到切换时再加载 */}
         <div style={{ display: isMallVisible ? 'block' : 'none' }} className="cached-page">
-          <MallPage />
+          <MallPage visible={isMallVisible} />
         </div>
         <div style={{ display: isChatVisible ? 'block' : 'none' }} className="cached-page">
-          <ChatRoomListPage />
+          <ChatRoomListPage visible={isChatVisible} />
         </div>
         <div style={{ display: isTaskVisible ? 'block' : 'none' }} className="cached-page">
-          <TaskCenterPage />
+          <TaskCenterPage visible={isTaskVisible} />
         </div>
         <div style={{ display: isProfileVisible ? 'block' : 'none' }} className="cached-page">
-          <ProfilePage />
+          <ProfilePage visible={isProfileVisible} />
         </div>
         
         {/* 非缓存页面使用Outlet渲染 */}

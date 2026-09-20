@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import { ConsultOrdersService } from './consult-orders.service';
-import type { ConsultOrderInfo, CreateConsultOrderDTO, ConsultOrderListResponse, PaymentScreenshotDTO, WorkScreenshotDTO, ReviewDTO } from '@shared/api.interface';
+import type { ConsultOrderInfo, CreateConsultOrderDTO, ConsultOrderListResponse, PaymentScreenshotDTO, WorkScreenshotDTO, ReviewDTO } from '../../../shared/api.interface';
 export declare class ConsultOrdersController {
     private readonly consultOrdersService;
     constructor(consultOrdersService: ConsultOrdersService);

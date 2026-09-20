@@ -15,6 +15,7 @@ import { UploadModule } from './modules/upload/upload.module';
 import { ChatRoomsModule } from './modules/chat-rooms/chat-rooms.module';
 import { ChatMessagesModule } from './modules/chat-messages/chat-messages.module';
 import { FriendsModule } from './modules/friends/friends.module';
+import { OcrModule } from './modules/ocr/ocr.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { FriendsModule } from './modules/friends/friends.module';
     ChatRoomsModule,
     ChatMessagesModule,
     FriendsModule,
+    OcrModule,
   ],
   providers: [
     {

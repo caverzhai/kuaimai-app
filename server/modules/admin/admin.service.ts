@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ConflictException,
   Inject,
@@ -110,7 +110,7 @@ export class AdminService {
   ) {}
 
   // ============================================================
-  // 商品管理
+  // 鍟嗗搧绠＄悊
   // ============================================================
 
   async getProductList(params: ProductListParams): Promise<ProductListResponse> {
@@ -132,7 +132,7 @@ export class AdminService {
   }
 
   // ============================================================
-  // 商城订单管理
+  // 鍟嗗煄璁㈠崟绠＄悊
   // ============================================================
 
   private toMallOrderInfo(order: typeof mallOrders.$inferSelect): MallOrderInfo {
@@ -262,6 +262,13 @@ export class AdminService {
     }
 
     const now = new Date();
+    const autoDeliveryDeadline = new Date(now);
+    if (isNoLogistics) {
+      autoDeliveryDeadline.setMinutes(autoDeliveryDeadline.getMinutes() + 20);
+    } else {
+      autoDeliveryDeadline.setDate(autoDeliveryDeadline.getDate() + 15);
+    }
+
     const updated = await this.db
       .update(mallOrders)
       .set({
@@ -269,11 +276,12 @@ export class AdminService {
         logisticsCompany: dto.logisticsCompany,
         logisticsNo: isNoLogistics ? null : dto.logisticsNo,
         shippedAt: now,
+        autoDeliveryDeadline,
       })
       .where(eq(mallOrders.id, id))
       .returning();
 
-    this.logger.log(`商城订单发货: orderId=${id}, 无需物流=${isNoLogistics}`);
+    this.logger.log(`鍟嗗煄璁㈠崟鍙戣揣: orderId=${id}, 鏃犻渶鐗╂祦=${isNoLogistics}`);
     return this.toMallOrderInfo(updated[0]);
   }
 
@@ -294,17 +302,17 @@ export class AdminService {
       .set({
         status: MALL_ORDER_STATUS.CANCELLED,
         cancelledAt: now,
-        cancelReason: '后台取消',
+        cancelReason: '鍚庡彴鍙栨秷',
       })
       .where(eq(mallOrders.id, id))
       .returning();
 
-    this.logger.log(`后台取消商城订单: orderId=${id}`);
+    this.logger.log(`鍚庡彴鍙栨秷鍟嗗煄璁㈠崟: orderId=${id}`);
     return this.toMallOrderInfo(updated[0]);
   }
 
   // ============================================================
-  // 用户管理
+  // 鐢ㄦ埛绠＄悊
   // ============================================================
 
   private toUserInfo(user: typeof users.$inferSelect): UserInfo {
@@ -393,11 +401,10 @@ export class AdminService {
 
   // 修改用户手机号
   async updateUserPhone(id: string, newPhone: string): Promise<UserInfo> {
-    // 校验手机号格式
+    // 验证手机号格式
     if (!/^1\d{10}$/.test(newPhone)) {
       throw new BadRequestException('手机号格式不正确，必须是11位数字');
     }
-    // 检查手机号是否已被占用
     const existing = await this.db.select().from(users).where(eq(users.phone, newPhone)).limit(1);
     if (existing.length > 0 && existing[0].id !== id) {
       throw new ConflictException('该手机号已被其他用户使用');
@@ -414,9 +421,7 @@ export class AdminService {
     return this.toUserInfo(updated[0]);
   }
 
-  // ============================================================
   // 公司资质审核
-  // ============================================================
 
   async getCompanyAuditList(params: AdminListParams): Promise<{
     items: UserInfo[];
@@ -461,13 +466,12 @@ export class AdminService {
     const newStatus = dto.passed ? 'approved' : 'rejected';
 
     if (dto.passed && user.level === LEVELS.LEVEL_7) {
-      // 审核通过的7级用户，检查是否满足升级条件（最后一个6→7任务完成）
+      // 审核通过的7级用户，检查是否满足升级条件（最后一个任务完成）
       const lastTaskRows = await this.db
         .select()
         .from(upgradeTasks)
         .where(
           and(
-            eq(upgradeTasks.userId, id),
             eq(upgradeTasks.toLevel, LEVELS.LEVEL_7),
           ),
         )
@@ -476,7 +480,7 @@ export class AdminService {
 
       const lastTask = lastTaskRows[0];
       if (lastTask && lastTask.status === TASK_STATUS.COMPLETED) {
-        // 执行升级到 level_8
+        // 鎵ц鍗囩骇鍒?level_8
         const updated = await this.db
           .update(users)
           .set({
@@ -485,7 +489,7 @@ export class AdminService {
           })
           .where(eq(users.id, id))
           .returning();
-        this.logger.log(`公司资质审核通过并升级: userId=${id}, level=${LEVELS.LEVEL_8}`);
+        this.logger.log(`鍏徃璧勮川瀹℃牳閫氳繃骞跺崌绾? userId=${id}, level=${LEVELS.LEVEL_8}`);
         return this.toUserInfo(updated[0]);
       }
     }
@@ -496,13 +500,12 @@ export class AdminService {
       .where(eq(users.id, id))
       .returning();
 
-    this.logger.log(`公司资质审核: userId=${id}, passed=${dto.passed}`);
+    this.logger.log(`鍏徃璧勮川瀹℃牳: userId=${id}, passed=${dto.passed}`);
     return this.toUserInfo(updated[0]);
   }
 
   // ============================================================
-  // 平台收款码管理
-  // ============================================================
+  // 骞冲彴鏀舵鐮佺鐞?  // ============================================================
 
   async getPlatformQrcode(type: string): Promise<PlatformQrcodeInfo> {
     const rows = await this.db
@@ -548,7 +551,7 @@ export class AdminService {
         })
         .returning();
       const qr = inserted[0];
-      this.logger.log(`创建平台收款码: type=${type}`);
+      this.logger.log(`鍒涘缓骞冲彴鏀舵鐮? type=${type}`);
       return {
         id: qr.id,
         type: qr.type,
@@ -572,7 +575,7 @@ export class AdminService {
       .returning();
 
     const qr = updated[0];
-    this.logger.log(`更新平台收款码: type=${type}`);
+    this.logger.log(`鏇存柊骞冲彴鏀舵鐮? type=${type}`);
     return {
       id: qr.id,
       type: qr.type,
@@ -582,7 +585,7 @@ export class AdminService {
   }
 
   // ============================================================
-  // 咨询订单管理
+  // 鍜ㄨ璁㈠崟绠＄悊
   // ============================================================
 
   private toConsultOrderInfo(order: typeof consultOrders.$inferSelect): ConsultOrderInfo {
@@ -645,7 +648,6 @@ export class AdminService {
 
   // ============================================================
   // 资金概览（用户端）
-  // ============================================================
 
   async getFinanceInfo(userId: string): Promise<FinanceInfo> {
     const userRows = await this.db.select().from(users).where(eq(users.id, userId)).limit(1);

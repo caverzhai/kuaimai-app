@@ -76,9 +76,13 @@ export default function MallOrderConfirmPage() {
 
   useEffect(() => {
     if (!user) return;
-    if (user.nickname && !name) setName(user.nickname);
-    if (user.receivePhone) setPhone(user.receivePhone);
-    if (user.receiveAddress) setAddr(user.receiveAddress);
+    // 收货人姓名：优先使用实名认证的真实姓名，否则用昵称
+    if (user.realName && !name) setName(user.realName);
+    else if (user.nickname && !name) setName(user.nickname);
+    // 收货人电话：使用注册手机号
+    if (user.phone && !phone) setPhone(user.phone);
+    // 收货地址：优先使用实名认证的户籍地址
+    if (user.address && !addr) setAddr(user.address);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 

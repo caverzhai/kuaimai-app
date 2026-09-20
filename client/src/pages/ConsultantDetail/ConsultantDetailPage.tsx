@@ -60,6 +60,8 @@ export default function ConsultantDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 防止重复创建订单的标记
+  const orderCreatedRef = useRef(false);
 
   const [consultant, setConsultant] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +78,23 @@ export default function ConsultantDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  // 倒计时定时器（每秒更新）
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 格式化倒计时
+  const formatCountdown = (deadline?: string): string => {
+    if (!deadline) return '';
+    const remain = new Date(deadline).getTime() - now;
+    if (remain <= 0) return '官方即将介入';
+    const minutes = Math.floor(remain / 60000);
+    const seconds = Math.floor((remain % 60000) / 1000);
+    return `官方介入时间：${minutes}分${seconds.toString().padStart(2, '0')}秒`;
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -87,7 +106,7 @@ export default function ConsultantDetailPage() {
         const [data, ordersResult] = await Promise.all([
           getConsultantDetail(id),
           user ? getMyConsultOrders({
-            status: 'pending_confirm,pending_review,in_service',
+            status: 'pending_payment,pending_confirm,pending_review,in_service',
             pageSize: 50,
           }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
         ]);
@@ -103,21 +122,24 @@ export default function ConsultantDetailPage() {
         }
 
         // 如果有固定金额且没有待审核订单，自动创建订单并打开支付弹窗
-        if (fixedAmount) {
+        if (fixedAmount && !orderCreatedRef.current) {
           const numAmount = Number(fixedAmount);
           if (numAmount > 0) {
+            orderCreatedRef.current = true;
             setCreatingOrder(true);
             try {
               const order = await createConsultOrder({
                 consultantId: id,
                 serviceType: 'upgrade_task',
                 amount: numAmount,
+                taskId: taskId || undefined,
               });
               setCurrentOrder(order as ConsultOrderInfo);
               setPurchaseDialogOpen(true);
             } catch (err) {
               setOrderError('创建订单失败，请稍后重试');
               logger.error('自动创建订单失败', err);
+              orderCreatedRef.current = false;
             } finally {
               setCreatingOrder(false);
             }
@@ -147,6 +169,7 @@ export default function ConsultantDetailPage() {
         consultantId: id,
         serviceType,
         amount: numAmount,
+        taskId: taskId || undefined,
       });
       setCurrentOrder(data as ConsultOrderInfo);
       setPurchaseDialogOpen(true);
@@ -169,7 +192,8 @@ export default function ConsultantDetailPage() {
     try {
       // 先上传图片到服务器，获取真实URL
       const imageUrl = await uploadImageToServer(file);
-      await uploadConsultPayment(currentOrder.id, imageUrl);
+      const updatedOrder = await uploadConsultPayment(currentOrder.id, imageUrl);
+      setCurrentOrder(updatedOrder as ConsultOrderInfo);
       setUploaded(true);
       // 上传成功后1.5秒自动关闭弹窗并返回任务中心
       setTimeout(() => {
@@ -189,7 +213,9 @@ export default function ConsultantDetailPage() {
     }
   };
 
-  const isCompanyQrcode = consultant && LEVEL_LAYERS[consultant.level] >= 7;
+  // 管理员（零号线）例外：始终显示个人收款码
+  const ADMIN_ID = '4b51567f-8020-415c-8b5d-1de2f28e141d';
+  const isCompanyQrcode = consultant && consultant.id !== ADMIN_ID && LEVEL_LAYERS[consultant.level] >= 7;
 
   if (loading) {
     return (
@@ -539,9 +565,14 @@ export default function ConsultantDetailPage() {
               {/* 提示 */}
               <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 p-3 rounded-lg">
                 <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>
-                  请备注订单号转账，20分钟内未确认将自动确认收款
-                </p>
+                <div>
+                  <p>请备注订单号转账，20分钟内未确认将自动确认收款</p>
+                  {uploaded && currentOrder?.autoConfirmDeadline && (
+                    <p className="font-bold text-orange-600 mt-1">
+                      ⏱ {formatCountdown(currentOrder.autoConfirmDeadline)}
+                    </p>
+                  )}
+                </div>
               </div>
 
               {!uploaded ? (

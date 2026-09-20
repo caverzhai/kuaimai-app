@@ -17,6 +17,7 @@ import {
   chatMicRequests,
   chatRoomApplications,
   chatBlockedWords,
+  chatMessages,
   users,
 } from '@server/database/schema';
 
@@ -59,18 +60,32 @@ export class ChatRoomsService {
             AND scheduled_end_time IS NOT NULL 
             AND scheduled_end_time <= ${now}
         `);
+        // 每小时自动清理已结束超过24小时的聊天室（每分钟检查，每60次执行一次）
+        this.cleanupCounter = (this.cleanupCounter || 0) + 1;
+        if (this.cleanupCounter >= 60) {
+          this.cleanupCounter = 0;
+          await this.cleanupExpiredRooms();
+        }
       } catch (err) {
         this.logger.error('定时任务执行失败', err);
       }
     }, 60000); // 每分钟检查一次
   }
 
+  private cleanupCounter = 0;
+
   // 获取聊天室列表
   async getRoomList(userId: string) {
+    const now = new Date();
     const rooms = await this.db
       .select()
       .from(chatRooms)
-      .where(eq(chatRooms.isActive, true))
+      .where(
+        and(
+          eq(chatRooms.isActive, true),
+          sql`(${chatRooms.scheduledEndTime} IS NULL OR ${chatRooms.scheduledEndTime} > ${now})`,
+        ),
+      )
       .orderBy(desc(chatRooms.createdAt));
 
     // 获取每个聊天室的在线人数和麦位信息
@@ -213,6 +228,8 @@ export class ChatRoomsService {
       description: room.description,
       type: room.type,
       maxMicCount: room.maxMicCount,
+      isActive: room.isActive,
+      scheduledEndTime: room.scheduledEndTime ? room.scheduledEndTime.toISOString() : null,
       myRole: member.role,
       isMuted: member.isMuted,
       micSlots: mics.map((mic) => ({
@@ -221,6 +238,61 @@ export class ChatRoomsService {
         nickname: micUserMap.get(mic.userId)?.nickname || '未知',
         avatarUrl: micUserMap.get(mic.userId)?.avatarUrl,
       })),
+    };
+  }
+
+  // 获取聊天室成员列表
+  async getRoomMembers(roomId: string, userId: string) {
+    // 检查聊天室是否存在
+    const roomRows = await this.db.select().from(chatRooms).where(eq(chatRooms.id, roomId)).limit(1);
+    if (roomRows.length === 0) throw new NotFoundException('聊天室不存在');
+
+    // 检查是否是成员
+    const myMember = await this.db.select().from(chatRoomMembers)
+      .where(and(eq(chatRoomMembers.roomId, roomId), eq(chatRoomMembers.userId, userId)))
+      .limit(1);
+    if (myMember.length === 0) {
+      throw new ForbiddenException('你不是该聊天室成员');
+    }
+
+    // 获取所有成员（排除被拉黑的）
+    const members = await this.db.select().from(chatRoomMembers)
+      .where(and(eq(chatRoomMembers.roomId, roomId), eq(chatRoomMembers.isBlocked, false)))
+      .orderBy(desc(chatRoomMembers.joinedAt));
+
+    const memberUserIds = members.map((m) => m.userId);
+    const memberUsers = memberUserIds.length > 0
+      ? await this.db.select({
+          id: users.id,
+          nickname: users.nickname,
+          avatarUrl: users.avatarUrl,
+          level: users.level,
+        }).from(users).where(inArray(users.id, memberUserIds))
+      : [];
+    const userMap = new Map(memberUsers.map((u) => [u.id, u]));
+
+    // 获取当前在麦位上的用户
+    const mics = await this.db.select().from(chatMicSlots)
+      .where(and(eq(chatMicSlots.roomId, roomId), eq(chatMicSlots.isActive, true)));
+    const micUserIds = new Set(mics.map((m) => m.userId));
+
+    const items = members.map((member) => {
+      const user = userMap.get(member.userId);
+      return {
+        userId: member.userId,
+        nickname: user?.nickname || '未知用户',
+        avatarUrl: user?.avatarUrl,
+        level: user?.level,
+        role: member.role,
+        isMuted: member.isMuted,
+        isOnMic: micUserIds.has(member.userId),
+        joinedAt: member.joinedAt.toISOString(),
+      };
+    });
+
+    return {
+      items,
+      total: items.length,
     };
   }
 
@@ -400,14 +472,155 @@ export class ChatRoomsService {
     return { success: true };
   }
 
-  // 关闭聊天室（管理员）
-  async closeRoom(roomId: string, operatorPhone: string) {
-    if (!ADMIN_PHONES.includes(operatorPhone)) {
-      throw new ForbiddenException('只有管理员可以关闭聊天室');
+  // 关闭聊天室（管理员或聊天室创建者）
+  async closeRoom(roomId: string, operatorPhone: string, operatorUserId: string) {
+    // 查询聊天室创建者
+    const room = await this.db.select().from(chatRooms).where(eq(chatRooms.id, roomId)).limit(1);
+    if (room.length === 0) {
+      throw new NotFoundException('聊天室不存在');
+    }
+    const isAdmin = ADMIN_PHONES.includes(operatorPhone);
+    const isCreator = room[0].createdBy === operatorUserId;
+    if (!isAdmin && !isCreator) {
+      throw new ForbiddenException('只有管理员或聊天室创建者可以关闭聊天室');
     }
     await this.db.update(chatRooms).set({ isActive: false }).where(eq(chatRooms.id, roomId));
-    this.logger.log(`关闭聊天室: roomId=${roomId}`);
+    this.logger.log(`关闭聊天室: roomId=${roomId}, operator=${operatorPhone}, isAdmin=${isAdmin}, isCreator=${isCreator}`);
     return { success: true };
+  }
+
+  /** 定时任务：激活到时间的聊天室 */
+  async activateScheduledRooms(): Promise<{ activated: number }> {
+    const now = new Date();
+    try {
+      const result = await this.db
+        .update(chatRooms)
+        .set({ isActive: true })
+        .where(
+          and(
+            eq(chatRooms.isActive, false),
+            sql`${chatRooms.scheduledStartTime} IS NOT NULL`,
+            sql`${chatRooms.scheduledStartTime} <= ${now}`,
+          ),
+        )
+        .returning({ id: chatRooms.id });
+      if (result.length > 0) {
+        this.logger.log(`定时激活聊天室: ${result.length} 个`);
+      }
+      return { activated: result.length };
+    } catch (e) {
+      this.logger.error(`定时激活聊天室失败: ${e}`);
+      return { activated: 0 };
+    }
+  }
+
+  /** 定时任务：自动关闭过期的聊天室 */
+  async closeExpiredRooms(): Promise<{ closed: number }> {
+    const now = new Date();
+    try {
+      const result = await this.db
+        .update(chatRooms)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(chatRooms.isActive, true),
+            sql`${chatRooms.scheduledEndTime} IS NOT NULL`,
+            sql`${chatRooms.scheduledEndTime} <= ${now}`,
+          ),
+        )
+        .returning({ id: chatRooms.id });
+      if (result.length > 0) {
+        this.logger.log(`定时关闭过期聊天室: ${result.length} 个`);
+      }
+      return { closed: result.length };
+    } catch (e) {
+      this.logger.error(`定时关闭过期聊天室失败: ${e}`);
+      return { closed: 0 };
+    }
+  }
+
+  /** 管理员：获取所有聊天室（包括已结束的） */
+  async getAllRoomsForAdmin() {
+    const rooms = await this.db
+      .select({
+        id: chatRooms.id,
+        name: chatRooms.name,
+        description: chatRooms.description,
+        type: chatRooms.type,
+        createdBy: chatRooms.createdBy,
+        isActive: chatRooms.isActive,
+        scheduledStartTime: chatRooms.scheduledStartTime,
+        scheduledEndTime: chatRooms.scheduledEndTime,
+        createdAt: chatRooms.createdAt,
+      })
+      .from(chatRooms)
+      .orderBy(desc(chatRooms.createdAt));
+
+    // 获取创建者信息
+    const userIds = rooms.map((r) => r.createdBy);
+    const creators = userIds.length > 0
+      ? await this.db.select({ id: users.id, nickname: users.nickname, phone: users.phone }).from(users).where(inArray(users.id, userIds))
+      : [];
+    const creatorMap = new Map(creators.map((u) => [u.id, u]));
+
+    return {
+      items: rooms.map((room) => ({
+        ...room,
+        creatorNickname: creatorMap.get(room.createdBy)?.nickname || '未知',
+        creatorPhone: creatorMap.get(room.createdBy)?.phone || '',
+        scheduledStartTime: room.scheduledStartTime ? room.scheduledStartTime.toISOString() : null,
+        scheduledEndTime: room.scheduledEndTime ? room.scheduledEndTime.toISOString() : null,
+        createdAt: room.createdAt.toISOString(),
+        isExpired: room.scheduledEndTime ? new Date(room.scheduledEndTime) < new Date() : false,
+      })),
+    };
+  }
+
+  /** 管理员：删除聊天室 */
+  async deleteRoomByAdmin(roomId: string, operatorPhone: string) {
+    // 删除聊天室成员
+    await this.db.delete(chatRoomMembers).where(eq(chatRoomMembers.roomId, roomId));
+    // 删除麦位
+    await this.db.delete(chatMicSlots).where(eq(chatMicSlots.roomId, roomId));
+    // 删除聊天室消息
+    await this.db.delete(chatMessages).where(eq(chatMessages.roomId, roomId));
+    // 删除聊天室
+    const result = await this.db.delete(chatRooms).where(eq(chatRooms.id, roomId)).returning({ id: chatRooms.id });
+    this.logger.log(`管理员${operatorPhone}删除聊天室: ${roomId}`);
+    return { success: result.length > 0 };
+  }
+
+  /** 定时任务：自动删除已结束超过24小时的聊天室 */
+  async cleanupExpiredRooms(): Promise<{ deleted: number }> {
+    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24小时前
+    try {
+      // 找出已结束超过24小时的聊天室
+      const expiredRooms = await this.db
+        .select({ id: chatRooms.id })
+        .from(chatRooms)
+        .where(
+          and(
+            eq(chatRooms.isActive, false),
+            sql`${chatRooms.scheduledEndTime} IS NOT NULL`,
+            sql`${chatRooms.scheduledEndTime} <= ${cutoffTime}`,
+          ),
+        );
+
+      if (expiredRooms.length === 0) return { deleted: 0 };
+
+      const roomIds = expiredRooms.map((r) => r.id);
+      // 删除相关数据
+      await this.db.delete(chatRoomMembers).where(inArray(chatRoomMembers.roomId, roomIds));
+      await this.db.delete(chatMicSlots).where(inArray(chatMicSlots.roomId, roomIds));
+      await this.db.delete(chatMessages).where(inArray(chatMessages.roomId, roomIds));
+      await this.db.delete(chatRooms).where(inArray(chatRooms.id, roomIds));
+
+      this.logger.log(`自动清理已结束超过24小时的聊天室: ${roomIds.length} 个`);
+      return { deleted: roomIds.length };
+    } catch (e) {
+      this.logger.error(`自动清理过期聊天室失败: ${e}`);
+      return { deleted: 0 };
+    }
   }
 
   // 屏蔽词管理
@@ -594,5 +807,21 @@ export class ChatRoomsService {
 
     this.logger.log(`拒绝聊天室申请: applicationId=${applicationId}, roomName=${appRows[0].roomName}`);
     return { success: true, message: '已拒绝申请' };
+  }
+
+  // 用户删除自己的申请记录
+  async deleteApplication(applicationId: string, userId: string, userPhone: string) {
+    const isAdmin = ADMIN_PHONES.includes(userPhone);
+    const appRows = await this.db.select().from(chatRoomApplications).where(eq(chatRoomApplications.id, applicationId)).limit(1);
+    if (appRows.length === 0) throw new NotFoundException('申请不存在');
+    if (!isAdmin && appRows[0].userId !== userId) {
+      throw new ForbiddenException('只能删除自己的申请记录');
+    }
+
+    // 删除申请记录
+    await this.db.delete(chatRoomApplications).where(eq(chatRoomApplications.id, applicationId));
+
+    this.logger.log(`删除聊天室申请: applicationId=${applicationId}, roomName=${appRows[0].roomName}, by=${userPhone}`);
+    return { success: true, message: '申请记录已删除' };
   }
 }

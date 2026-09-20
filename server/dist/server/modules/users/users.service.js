@@ -17,9 +17,9 @@ exports.UsersService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const api_interface_1 = require("@shared/api.interface");
-const schema_1 = require("@server/database/schema");
-const auth_util_1 = require("@server/common/utils/auth.util");
+const api_interface_1 = require("../../../shared/api.interface");
+const schema_1 = require("../../database/schema");
+const auth_util_1 = require("../../common/utils/auth.util");
 const common_2 = require("@nestjs/common");
 const MAX_DIRECT_CHILDREN = 3;
 let UsersService = UsersService_1 = class UsersService {
@@ -130,7 +130,12 @@ let UsersService = UsersService_1 = class UsersService {
             return newUser;
         });
         const token = this.makeToken(result);
-        return { token, user: this.toUserInfo(result) };
+        const userInfo = this.toUserInfo(result);
+        if (inviter) {
+            userInfo.inviterNickname = inviter.nickname;
+            userInfo.inviterPhone = inviter.phone;
+        }
+        return { token, user: userInfo };
     }
     async login(dto) {
         const userRows = await this.db
@@ -146,7 +151,19 @@ let UsersService = UsersService_1 = class UsersService {
             throw new common_2.UnauthorizedException('手机号或密码错误');
         }
         const token = this.makeToken(user);
-        return { token, user: this.toUserInfo(user) };
+        const userInfo = this.toUserInfo(user);
+        if (user.inviterId) {
+            const inviterRows = await this.db
+                .select({ nickname: schema_1.users.nickname, phone: schema_1.users.phone })
+                .from(schema_1.users)
+                .where((0, drizzle_orm_1.eq)(schema_1.users.id, user.inviterId))
+                .limit(1);
+            if (inviterRows.length > 0) {
+                userInfo.inviterNickname = inviterRows[0].nickname;
+                userInfo.inviterPhone = inviterRows[0].phone;
+            }
+        }
+        return { token, user: userInfo };
     }
     async getCurrentUser(userId) {
         const userRows = await this.db
@@ -157,7 +174,103 @@ let UsersService = UsersService_1 = class UsersService {
         if (userRows.length === 0) {
             throw new common_2.NotFoundException('用户不存在');
         }
-        return this.toUserInfo(userRows[0]);
+        let user = userRows[0];
+        if (user.thresholdBlocked && (user.directInviteCount >= 3 || user.level !== 'level_4')) {
+            const pendingAmount = Number(user.pendingReclaimAmount) || 0;
+            const incomeNum = Number(user.totalConsultIncome) || 0;
+            const newTotalIncome = incomeNum + pendingAmount;
+            await this.db
+                .update(schema_1.users)
+                .set({
+                thresholdBlocked: false,
+                thresholdTriggeredAt: null,
+                pendingReclaimAmount: '0',
+                totalConsultIncome: newTotalIncome.toFixed(2),
+            })
+                .where((0, drizzle_orm_1.eq)(schema_1.users.id, userId));
+            this.logger.log(`用户登录时自动解除900元门槛: userId=${userId}, level=${user.level}, ` +
+                `directInviteCount=${user.directInviteCount}, ` +
+                `返还暂存金额=${pendingAmount}`);
+            const refreshedRows = await this.db
+                .select()
+                .from(schema_1.users)
+                .where((0, drizzle_orm_1.eq)(schema_1.users.id, userId))
+                .limit(1);
+            if (refreshedRows.length > 0) {
+                user = refreshedRows[0];
+            }
+        }
+        const userInfo = this.toUserInfo(user);
+        if (user.inviterId) {
+            const inviterRows = await this.db
+                .select({ nickname: schema_1.users.nickname, phone: schema_1.users.phone })
+                .from(schema_1.users)
+                .where((0, drizzle_orm_1.eq)(schema_1.users.id, user.inviterId))
+                .limit(1);
+            if (inviterRows.length > 0) {
+                userInfo.inviterNickname = inviterRows[0].nickname;
+                userInfo.inviterPhone = inviterRows[0].phone;
+            }
+        }
+        return userInfo;
+    }
+    async getRelationTree(userId) {
+        const userRows = await this.db
+            .select({ inviterId: schema_1.users.inviterId, parentId: schema_1.users.parentId })
+            .from(schema_1.users)
+            .where((0, drizzle_orm_1.eq)(schema_1.users.id, userId))
+            .limit(1);
+        if (userRows.length === 0) {
+            throw new common_2.NotFoundException('用户不存在');
+        }
+        const user = userRows[0];
+        const result = {
+            directInviter: null,
+            directParent: null,
+            directChildren: [],
+            secondGenerationChildren: [],
+            thirdGenerationChildren: [],
+        };
+        const getUserBrief = async (id) => {
+            if (!id)
+                return null;
+            const rows = await this.db
+                .select({ id: schema_1.users.id, nickname: schema_1.users.nickname, phone: schema_1.users.phone, level: schema_1.users.level })
+                .from(schema_1.users)
+                .where((0, drizzle_orm_1.eq)(schema_1.users.id, id))
+                .limit(1);
+            return rows.length > 0 ? rows[0] : null;
+        };
+        const getChildrenByParentId = async (parentId) => {
+            const rows = await this.db
+                .select({ id: schema_1.users.id, nickname: schema_1.users.nickname, phone: schema_1.users.phone, level: schema_1.users.level })
+                .from(schema_1.users)
+                .where((0, drizzle_orm_1.eq)(schema_1.users.parentId, parentId));
+            return rows;
+        };
+        result.directInviter = await getUserBrief(user.inviterId);
+        result.directParent = await getUserBrief(user.parentId);
+        const directChildren = await getChildrenByParentId(userId);
+        result.directChildren = directChildren;
+        if (directChildren.length > 0) {
+            const directChildIds = directChildren.map(c => c.id);
+            const secondGenChildren = [];
+            for (const childId of directChildIds) {
+                const children = await getChildrenByParentId(childId);
+                secondGenChildren.push(...children);
+            }
+            result.secondGenerationChildren = secondGenChildren;
+            if (secondGenChildren.length > 0) {
+                const secondGenChildIds = secondGenChildren.map(c => c.id);
+                const thirdGenChildren = [];
+                for (const childId of secondGenChildIds) {
+                    const children = await getChildrenByParentId(childId);
+                    thirdGenChildren.push(...children);
+                }
+                result.thirdGenerationChildren = thirdGenChildren;
+            }
+        }
+        return result;
     }
     async updateProfile(userId, dto) {
         const patch = {};
@@ -187,6 +300,35 @@ let UsersService = UsersService_1 = class UsersService {
             patch.companyQrcodeUrl = dto.companyQrcodeUrl;
         if (dto.businessLicenseUrl !== undefined)
             patch.businessLicenseUrl = dto.businessLicenseUrl;
+        if (dto.idCardFrontUrl !== undefined)
+            patch.idCardFrontUrl = dto.idCardFrontUrl;
+        if (dto.idCardBackUrl !== undefined)
+            patch.idCardBackUrl = dto.idCardBackUrl;
+        if (dto.realName !== undefined)
+            patch.realName = dto.realName;
+        if (dto.wechatId !== undefined)
+            patch.wechatId = dto.wechatId;
+        if (dto.address !== undefined)
+            patch.address = dto.address;
+        if (dto.idCardNumber !== undefined && dto.idCardNumber.trim() !== '') {
+            const idCard = dto.idCardNumber.trim().toUpperCase();
+            if (!/^\d{17}[\dX]$/.test(idCard)) {
+                throw new common_2.BadRequestException('身份证号格式不正确，必须是18位数字');
+            }
+            const existing = await this.db
+                .select({ id: schema_1.users.id })
+                .from(schema_1.users)
+                .where((0, drizzle_orm_1.eq)(schema_1.users.idCardNumber, idCard))
+                .limit(1);
+            if (existing.length > 0 && existing[0].id !== userId) {
+                throw new common_2.ConflictException('该身份证号已被其他用户使用');
+            }
+            patch.idCardNumber = idCard;
+            const genderDigit = parseInt(idCard.charAt(16), 10);
+            if (!isNaN(genderDigit)) {
+                patch.gender = genderDigit % 2 === 1 ? '男' : '女';
+            }
+        }
         if (Object.keys(patch).length === 0) {
             throw new common_2.BadRequestException('未提供可更新字段');
         }
@@ -255,6 +397,9 @@ let UsersService = UsersService_1 = class UsersService {
                 treeLevel,
             })
                 .where((0, drizzle_orm_1.eq)(schema_1.users.id, user.id));
+            await tx
+                .delete(schema_1.upgradeTasks)
+                .where((0, drizzle_orm_1.eq)(schema_1.upgradeTasks.userId, user.id));
             await tx
                 .update(schema_1.users)
                 .set({
@@ -397,6 +542,12 @@ let UsersService = UsersService_1 = class UsersService {
             alipayQrcodeUrl: user.alipayQrcodeUrl ?? undefined,
             companyQrcodeUrl: user.companyQrcodeUrl ?? undefined,
             businessLicenseUrl: user.businessLicenseUrl ?? undefined,
+            idCardFrontUrl: user.idCardFrontUrl ?? undefined,
+            idCardBackUrl: user.idCardBackUrl ?? undefined,
+            idCardNumber: user.idCardNumber ?? undefined,
+            realName: user.realName ?? undefined,
+            address: user.address ?? undefined,
+            wechatId: user.wechatId ?? undefined,
             companyAuditStatus: user.companyAuditStatus ?? undefined,
             totalConsultIncome: String(user.totalConsultIncome),
             thresholdBlocked: user.thresholdBlocked,

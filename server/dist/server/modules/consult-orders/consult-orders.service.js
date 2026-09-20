@@ -17,9 +17,9 @@ exports.ConsultOrdersService = void 0;
 const common_1 = require("@nestjs/common");
 const drizzle_orm_1 = require("drizzle-orm");
 const database_module_1 = require("../../database/database.module");
-const schema_1 = require("@server/database/schema");
-const auth_util_1 = require("@server/common/utils/auth.util");
-const api_interface_1 = require("@shared/api.interface");
+const schema_1 = require("../../database/schema");
+const auth_util_1 = require("../../common/utils/auth.util");
+const api_interface_1 = require("../../../shared/api.interface");
 const upgrade_service_1 = require("../upgrade/upgrade.service");
 let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
     db;
@@ -40,6 +40,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             taskLevelFrom: order.taskLevelFrom ?? undefined,
             taskLevelTo: order.taskLevelTo ?? undefined,
             taskIndex: order.taskIndex ?? undefined,
+            taskId: order.taskId ?? undefined,
             status: order.status,
             paymentScreenshotUrl: order.paymentScreenshotUrl ?? undefined,
             paymentConfirmedAt: order.paymentConfirmedAt
@@ -121,7 +122,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             .where((0, drizzle_orm_1.eq)(schema_1.users.id, dto.consultantId));
         const consultant = consultantList[0];
         if (!consultant) {
-            throw new common_1.NotFoundException('咨询师不存在');
+            throw new common_1.NotFoundException('鍜ㄨ甯堜笉瀛樺湪');
         }
         const ADMIN_ID = '4b51567f-8020-415c-8b5d-1de2f28e141d';
         if (consultant.level === api_interface_1.LEVELS.JUNIOR && consultant.id !== ADMIN_ID) {
@@ -137,6 +138,21 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
                 overflowToGroup = true;
             }
         }
+        if (dto.taskId) {
+            const existingOrders = await this.db
+                .select()
+                .from(schema_1.consultOrders)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.consultOrders.studentId, studentId), (0, drizzle_orm_1.eq)(schema_1.consultOrders.taskId, dto.taskId), (0, drizzle_orm_1.inArray)(schema_1.consultOrders.status, [
+                api_interface_1.CONSULT_ORDER_STATUS.PENDING_PAYMENT,
+                api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM,
+                api_interface_1.CONSULT_ORDER_STATUS.IN_SERVICE,
+                api_interface_1.CONSULT_ORDER_STATUS.PENDING_REVIEW,
+            ])));
+            if (existingOrders.length > 0) {
+                this.logger.log(`幂等性检查：任务 ${dto.taskId} 已有进行中的订单，返回已存在的订单`);
+                return this.toOrderInfo(existingOrders[0]);
+            }
+        }
         const orderNo = (0, auth_util_1.generateOrderNo)('C');
         const amountStr = dto.amount.toFixed(2);
         const inserted = await this.db
@@ -150,20 +166,43 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             taskLevelFrom: dto.taskLevelFrom,
             taskLevelTo: dto.taskLevelTo,
             taskIndex: dto.taskIndex,
+            taskId: dto.taskId,
             status: api_interface_1.CONSULT_ORDER_STATUS.PENDING_PAYMENT,
             isOverflow,
             overflowToGroup,
         })
             .returning();
-        this.logger.log(`创建咨询订单: orderNo=${orderNo}, studentId=${studentId}, ` +
+        this.logger.log(`鍒涘缓鍜ㄨ璁㈠崟: orderNo=${orderNo}, studentId=${studentId}, ` +
             `consultantId=${dto.consultantId}, distance=${distance}, ` +
             `isOverflow=${isOverflow}`);
         return this.toOrderInfo(inserted[0]);
     }
+    async autoConfirmExpiredOrders(orders) {
+        const now = new Date();
+        for (const order of orders) {
+            if (order.status === api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM &&
+                order.autoConfirmDeadline &&
+                new Date(order.autoConfirmDeadline) <= now) {
+                try {
+                    this.logger.log(`鑷姩纭瓒呮椂璁㈠崟: orderId=${order.id}, consultantId=${order.consultantId}`);
+                    await this.confirmPayment(order.consultantId, order.id);
+                }
+                catch (e) {
+                    this.logger.error(`鑷姩纭璁㈠崟澶辫触: orderId=${order.id}, error=${e}`);
+                }
+            }
+        }
+    }
     async getStudentOrders(studentId, page, pageSize, status) {
         const conditions = [(0, drizzle_orm_1.eq)(schema_1.consultOrders.studentId, studentId)];
         if (status) {
-            conditions.push((0, drizzle_orm_1.eq)(schema_1.consultOrders.status, status));
+            const statusList = status.split(',').map(s => s.trim()).filter(Boolean);
+            if (statusList.length > 1) {
+                conditions.push((0, drizzle_orm_1.inArray)(schema_1.consultOrders.status, statusList));
+            }
+            else {
+                conditions.push((0, drizzle_orm_1.eq)(schema_1.consultOrders.status, status));
+            }
         }
         const whereClause = (0, drizzle_orm_1.and)(...conditions);
         const [countResult, items] = await Promise.all([
@@ -180,7 +219,22 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
                 .offset((page - 1) * pageSize),
         ]);
         const total = Number(countResult[0]?.count ?? 0);
-        const consultantIds = items.map((item) => item.consultantId);
+        const now = new Date();
+        await this.autoConfirmExpiredOrders(items);
+        const hasExpired = items.some((item) => item.status === api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM &&
+            item.autoConfirmDeadline &&
+            new Date(item.autoConfirmDeadline) <= now);
+        let finalItems = items;
+        if (hasExpired) {
+            finalItems = await this.db
+                .select()
+                .from(schema_1.consultOrders)
+                .where(whereClause)
+                .orderBy((0, drizzle_orm_1.desc)(schema_1.consultOrders.createdAt))
+                .limit(pageSize)
+                .offset((page - 1) * pageSize);
+        }
+        const consultantIds = finalItems.map((item) => item.consultantId);
         const consultantMap = new Map();
         if (consultantIds.length > 0) {
             const uniqueIds = [...new Set(consultantIds)];
@@ -192,7 +246,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
                 consultantMap.set(c.id, this.toUserBrief(c));
             }
         }
-        const orderItems = items.map((item) => {
+        const orderItems = finalItems.map((item) => {
             const info = this.toOrderInfo(item);
             const consultant = consultantMap.get(item.consultantId);
             if (consultant) {
@@ -233,7 +287,22 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
                 .offset((page - 1) * pageSize),
         ]);
         const total = Number(countResult[0]?.count ?? 0);
-        const studentIds = items.map((item) => item.studentId);
+        const now = new Date();
+        await this.autoConfirmExpiredOrders(items);
+        const hasExpired = items.some((item) => item.status === api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM &&
+            item.autoConfirmDeadline &&
+            new Date(item.autoConfirmDeadline) <= now);
+        let finalItems = items;
+        if (hasExpired) {
+            finalItems = await this.db
+                .select()
+                .from(schema_1.consultOrders)
+                .where(whereClause)
+                .orderBy((0, drizzle_orm_1.desc)(schema_1.consultOrders.createdAt))
+                .limit(pageSize)
+                .offset((page - 1) * pageSize);
+        }
+        const studentIds = finalItems.map((item) => item.studentId);
         const studentMap = new Map();
         if (studentIds.length > 0) {
             const uniqueIds = [...new Set(studentIds)];
@@ -245,7 +314,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
                 studentMap.set(s.id, this.toUserBrief(s));
             }
         }
-        const orderItems = items.map((item) => {
+        const orderItems = finalItems.map((item) => {
             const info = this.toOrderInfo(item);
             const student = studentMap.get(item.studentId);
             if (student) {
@@ -265,9 +334,24 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             .select()
             .from(schema_1.consultOrders)
             .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id));
-        const order = orderList[0];
+        let order = orderList[0];
         if (!order) {
             throw new common_1.NotFoundException('订单不存在');
+        }
+        const now = new Date();
+        if (order.status === api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM &&
+            order.autoConfirmDeadline &&
+            new Date(order.autoConfirmDeadline) <= now) {
+            try {
+                await this.confirmPayment(order.consultantId, order.id);
+                const refreshed = await this.db.select().from(schema_1.consultOrders).where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id));
+                if (refreshed[0]) {
+                    order = refreshed[0];
+                }
+            }
+            catch (e) {
+                this.logger.error(`鑷姩纭璁㈠崟澶辫触: orderId=${id}, error=${e}`);
+            }
         }
         if (order.studentId !== userId && order.consultantId !== userId) {
             throw new common_1.ForbiddenException('无权查看该订单');
@@ -294,7 +378,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             .select()
             .from(schema_1.consultOrders)
             .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id));
-        const order = orderList[0];
+        let order = orderList[0];
         if (!order) {
             throw new common_1.NotFoundException('订单不存在');
         }
@@ -302,7 +386,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             throw new common_1.ForbiddenException('无权操作该订单');
         }
         if (order.status !== api_interface_1.CONSULT_ORDER_STATUS.PENDING_PAYMENT) {
-            throw new common_1.BadRequestException('当前订单状态不允许上传付款凭证');
+            throw new common_1.BadRequestException('当前订单状态不允许操作');
         }
         const autoConfirmDeadline = new Date();
         autoConfirmDeadline.setMinutes(autoConfirmDeadline.getMinutes() + 20);
@@ -315,7 +399,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
         })
             .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id))
             .returning();
-        this.logger.log(`咨询订单付款凭证已上传: orderId=${id}, ` +
+        this.logger.log(`鍜ㄨ璁㈠崟浠樻鍑瘉宸蹭笂浼? orderId=${id}, ` +
             `status=${api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM}`);
         return this.toOrderInfo(updated[0]);
     }
@@ -324,23 +408,27 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             .select()
             .from(schema_1.consultOrders)
             .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id));
-        const order = orderList[0];
+        let order = orderList[0];
         if (!order) {
             throw new common_1.NotFoundException('订单不存在');
         }
-        if (order.consultantId !== userId) {
+        const userList = await this.db.select().from(schema_1.users).where((0, drizzle_orm_1.eq)(schema_1.users.id, userId));
+        const currentUser = userList[0];
+        const isAdmin = currentUser?.phone === '13800000000';
+        if (!isAdmin && order.consultantId !== userId) {
             throw new common_1.ForbiddenException('无权操作该订单');
         }
         if (order.status !== api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM) {
-            throw new common_1.BadRequestException('当前订单状态不允许确认收款');
+            throw new common_1.BadRequestException('当前订单状态不允许操作');
         }
         const now = new Date();
         const updatedOrders = await this.db.transaction(async (tx) => {
             const updated = await tx
                 .update(schema_1.consultOrders)
                 .set({
-                status: api_interface_1.CONSULT_ORDER_STATUS.IN_SERVICE,
+                status: api_interface_1.CONSULT_ORDER_STATUS.COMPLETED,
                 paymentConfirmedAt: now,
+                workReviewedAt: now,
             })
                 .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id))
                 .returning();
@@ -366,17 +454,48 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
                             thresholdTriggeredAt: now,
                         })
                             .where((0, drizzle_orm_1.eq)(schema_1.users.id, userId));
-                        this.logger.log(`4级咨询师触发900元门槛: consultantId=${userId}, ` +
+                        this.logger.log(`4绾у挩璇㈠笀瑙﹀彂900鍏冮棬妲? consultantId=${userId}, ` +
                             `totalConsultIncome=${incomeNum}, ` +
                             `directInviteCount=${consultant.directInviteCount}`);
                     }
                 }
             }
+            const consultantRows = await this.db
+                .select()
+                .from(schema_1.users)
+                .where((0, drizzle_orm_1.eq)(schema_1.users.id, userId))
+                .limit(1);
+            if (consultantRows.length > 0) {
+                const consultant = consultantRows[0];
+                if (consultant.thresholdBlocked && (consultant.directInviteCount >= 3 || consultant.level !== 'level_4')) {
+                    const pendingAmount = Number(consultant.pendingReclaimAmount) || 0;
+                    const incomeNum = Number(consultant.totalConsultIncome) || 0;
+                    const newTotalIncome = incomeNum + pendingAmount;
+                    await this.db
+                        .update(schema_1.users)
+                        .set({
+                        thresholdBlocked: false,
+                        thresholdTriggeredAt: null,
+                        pendingReclaimAmount: '0',
+                        totalConsultIncome: newTotalIncome.toFixed(2),
+                    })
+                        .where((0, drizzle_orm_1.eq)(schema_1.users.id, userId));
+                    this.logger.log(`咨询师解除900元门槛: consultantId=${userId}, level=${consultant.level}, ` +
+                        `directInviteCount=${consultant.directInviteCount}, ` +
+                        `返还暂存金额=${pendingAmount}`);
+                }
+            }
             return updated;
         });
-        this.logger.log(`咨询订单确认收款: orderId=${id}, ` +
-            `status=${api_interface_1.CONSULT_ORDER_STATUS.IN_SERVICE}, ` +
+        this.logger.log(`鍜ㄨ璁㈠崟确认收款骞跺畬鎴? orderId=${id}, ` +
+            `status=${api_interface_1.CONSULT_ORDER_STATUS.COMPLETED}, ` +
             `isOverflow=${order.isOverflow}`);
+        try {
+            await this.upgradeService.checkConsultTaskComplete(order.studentId, order.id, order.consultantId, String(order.amount));
+        }
+        catch (e) {
+            this.logger.error(`确认收款鍚庤Е鍙戝崌绾т换鍔″畬鎴愬け璐? ${e}`);
+        }
         return this.toOrderInfo(updatedOrders[0]);
     }
     async uploadWork(userId, id, dto) {
@@ -384,7 +503,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             .select()
             .from(schema_1.consultOrders)
             .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id));
-        const order = orderList[0];
+        let order = orderList[0];
         if (!order) {
             throw new common_1.NotFoundException('订单不存在');
         }
@@ -392,7 +511,7 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             throw new common_1.ForbiddenException('无权操作该订单');
         }
         if (order.status !== api_interface_1.CONSULT_ORDER_STATUS.IN_SERVICE) {
-            throw new common_1.BadRequestException('当前订单状态不允许提交作业');
+            throw new common_1.BadRequestException('当前订单状态不允许操作');
         }
         const now = new Date();
         const autoConfirmDeadline = new Date();
@@ -416,15 +535,18 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             .select()
             .from(schema_1.consultOrders)
             .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id));
-        const order = orderList[0];
+        let order = orderList[0];
         if (!order) {
             throw new common_1.NotFoundException('订单不存在');
         }
-        if (order.consultantId !== userId) {
+        const userList = await this.db.select().from(schema_1.users).where((0, drizzle_orm_1.eq)(schema_1.users.id, userId));
+        const currentUser = userList[0];
+        const isAdmin = currentUser?.phone === '13800000000';
+        if (!isAdmin && order.consultantId !== userId) {
             throw new common_1.ForbiddenException('无权操作该订单');
         }
         if (order.status !== api_interface_1.CONSULT_ORDER_STATUS.PENDING_REVIEW) {
-            throw new common_1.BadRequestException('当前订单状态不允许审核作业');
+            throw new common_1.BadRequestException('当前订单状态不允许操作');
         }
         const now = new Date();
         if (dto.passed) {
@@ -437,12 +559,12 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             })
                 .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id))
                 .returning();
-            this.logger.log(`咨询订单作业审核通过: orderId=${id}`);
+            this.logger.log(`鍜ㄨ璁㈠崟作业审核通过: orderId=${id}`);
             try {
                 await this.upgradeService.checkConsultTaskComplete(order.studentId, order.id, order.consultantId, String(order.amount));
             }
             catch (e) {
-                this.logger.error(`触发升级任务完成失败: ${e}`);
+                this.logger.error(`瑙﹀彂鍗囩骇浠诲姟瀹屾垚澶辫触: ${e}`);
             }
             return this.toOrderInfo(updated[0]);
         }
@@ -455,9 +577,48 @@ let ConsultOrdersService = ConsultOrdersService_1 = class ConsultOrdersService {
             })
                 .where((0, drizzle_orm_1.eq)(schema_1.consultOrders.id, id))
                 .returning();
-            this.logger.log(`咨询订单作业驳回重交: orderId=${id}`);
+            this.logger.log(`鍜ㄨ璁㈠崟浣滀笟椹冲洖閲嶄氦: orderId=${id}`);
             return this.toOrderInfo(updated[0]);
         }
+    }
+    async autoConfirmExpiredOrdersCron() {
+        const now = new Date();
+        let confirmed = 0;
+        let reviewed = 0;
+        try {
+            const expiredOrders = await this.db
+                .select()
+                .from(schema_1.consultOrders)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.inArray)(schema_1.consultOrders.status, [
+                api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM,
+                api_interface_1.CONSULT_ORDER_STATUS.PENDING_REVIEW,
+            ]), (0, drizzle_orm_1.sql) `${schema_1.consultOrders.autoConfirmDeadline} <= ${now}`));
+            if (expiredOrders.length > 0) {
+                this.logger.log(`定时任务扫描到 ${expiredOrders.length} 个超时订单`);
+            }
+            for (const order of expiredOrders) {
+                try {
+                    if (order.status === api_interface_1.CONSULT_ORDER_STATUS.PENDING_CONFIRM) {
+                        await this.confirmPayment(order.consultantId, order.id);
+                        confirmed++;
+                    }
+                    else if (order.status === api_interface_1.CONSULT_ORDER_STATUS.PENDING_REVIEW) {
+                        await this.reviewWork(order.consultantId, order.id, { passed: true, remark: '超时自动审核通过' });
+                        reviewed++;
+                    }
+                }
+                catch (e) {
+                    this.logger.error(`定时任务处理订单失败: orderId=${order.id}, error=${e}`);
+                }
+            }
+            if (confirmed > 0 || reviewed > 0) {
+                this.logger.log(`定时任务完成: 自动确认${confirmed}个, 自动审核${reviewed}个`);
+            }
+        }
+        catch (e) {
+            this.logger.error(`定时任务扫描失败: ${e}`);
+        }
+        return { confirmed, reviewed };
     }
 };
 exports.ConsultOrdersService = ConsultOrdersService;

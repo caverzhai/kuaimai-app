@@ -10,6 +10,8 @@ import {
   getMicRequests,
   approveMicRequest,
   rejectMicRequest,
+  closeChatRoom,
+  getChatRoomMembers,
 } from '../../api';
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
 import { uploadImageToServer } from '../../utils/imageUpload';
@@ -49,6 +51,17 @@ interface MicSlot {
   avatarUrl?: string;
 }
 
+interface ChatMember {
+  userId: string;
+  nickname: string;
+  avatarUrl?: string;
+  level?: string;
+  role: string;
+  isMuted: boolean;
+  isOnMic: boolean;
+  joinedAt: string;
+}
+
 interface RoomDetail {
   id: string;
   name: string;
@@ -81,6 +94,8 @@ const ChatRoomDetailPage: React.FC = () => {
   const [micRequests, setMicRequests] = useState<any[]>([]);
   const [myMicRequestStatus, setMyMicRequestStatus] = useState<string | null>(null);
   const [showMicRequests, setShowMicRequests] = useState(false);
+  const [members, setMembers] = useState<ChatMember[]>([]);
+  const [showAllMembers, setShowAllMembers] = useState(false);
   const isAdmin = user?.phone === '13800000000';
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -119,10 +134,21 @@ const ChatRoomDetailPage: React.FC = () => {
     }
   }, [roomId, scrollToBottom]);
 
+  const loadMembers = useCallback(async () => {
+    if (!roomId) return;
+    try {
+      const data = await getChatRoomMembers(roomId);
+      setMembers(data.items || []);
+    } catch (err: any) {
+      console.error('加载成员列表失败', err);
+    }
+  }, [roomId]);
+
   useEffect(() => {
     const init = async () => {
       await loadRoom();
       await loadMessages();
+      await loadMembers();
       setLoading(false);
     };
     init();
@@ -131,10 +157,13 @@ const ChatRoomDetailPage: React.FC = () => {
     const msgInterval = setInterval(loadMessages, 5000);
     // 每15秒刷新聊天室信息（麦位）
     const roomInterval = setInterval(loadRoom, 15000);
+    // 每30秒刷新成员列表
+    const memberInterval = setInterval(loadMembers, 30000);
 
     return () => {
       clearInterval(msgInterval);
       clearInterval(roomInterval);
+      clearInterval(memberInterval);
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
       }
@@ -144,7 +173,18 @@ const ChatRoomDetailPage: React.FC = () => {
         currentAudioRef.current = null;
       }
     };
-  }, [loadRoom, loadMessages]);
+  }, [loadRoom, loadMessages, loadMembers]);
+
+  const handleCloseRoom = async () => {
+    if (!window.confirm('确定要关闭这个聊天室吗？关闭后所有人都无法发言。')) return;
+    try {
+      await closeChatRoom(roomId!);
+      setError('聊天室已关闭');
+      setTimeout(() => navigate(-1), 1500);
+    } catch (err: any) {
+      setError(err.response?.data?.message || '关闭失败');
+    }
+  };
 
   const handleSendText = async () => {
     if (!inputText.trim() || sending) return;
@@ -478,13 +518,90 @@ const ChatRoomDetailPage: React.FC = () => {
             <p className="text-xs text-gray-400 truncate">{room.description}</p>
           )}
         </div>
-        {/* 顶部右侧无按钮 */}
+        {/* 管理员关闭按钮 */}
+        {user?.phone === '13800000000' && room.isActive && (
+          <button
+            onClick={handleCloseRoom}
+            className="px-3 py-1 bg-red-500 text-white text-xs rounded-full active:bg-red-600"
+          >
+            关闭
+          </button>
+        )}
+        {!room.isActive && (
+          <span className="px-3 py-1 bg-gray-400 text-white text-xs rounded-full">已关闭</span>
+        )}
       </div>
 
       {/* 错误提示 */}
       {error && (
         <div className="mx-4 mt-2 p-2 bg-red-50 text-red-600 rounded text-sm text-center">
           {error}
+        </div>
+      )}
+
+      {/* 用户列表区域 */}
+      {members.length > 0 && (
+        <div className="bg-white border-b px-4 py-3 flex-shrink-0">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-bold text-gray-700">
+              在线成员 ({members.length})
+            </span>
+            {members.length > 18 && (
+              <span
+                onClick={() => setShowAllMembers(!showAllMembers)}
+                className="text-xs text-blue-500 cursor-pointer"
+              >
+                {showAllMembers ? '收起' : `查看全部 ${members.length} 人`}
+              </span>
+            )}
+          </div>
+          <div
+            className="flex flex-wrap gap-3"
+            style={{
+              maxHeight: showAllMembers ? 'none' : 156,
+              overflow: showAllMembers ? 'visible' : 'hidden',
+            }}
+          >
+            {(showAllMembers ? members : members.slice(0, 18)).map((member) => (
+              <div key={member.userId} className="flex flex-col items-center w-12">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center relative overflow-hidden ${
+                    member.isOnMic ? 'bg-green-500' : 'bg-blue-100'
+                  } ${member.role === 'admin' ? 'ring-2 ring-orange-500' : ''}`}
+                >
+                  {member.avatarUrl ? (
+                    <img
+                      src={member.avatarUrl}
+                      alt={member.nickname}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span
+                      className={`text-sm font-bold ${
+                        member.isOnMic ? 'text-white' : 'text-blue-500'
+                      }`}
+                    >
+                      {member.nickname.charAt(0)}
+                    </span>
+                  )}
+                  {member.isOnMic && (
+                    <span className="absolute bottom-0 right-0 text-[8px]">🎤</span>
+                  )}
+                </div>
+                <span className="text-[10px] text-gray-500 mt-1 truncate w-full text-center">
+                  {member.nickname}
+                </span>
+              </div>
+            ))}
+          </div>
+          {!showAllMembers && members.length > 18 && (
+            <div
+              onClick={() => setShowAllMembers(true)}
+              className="text-center text-xs text-gray-400 mt-2 cursor-pointer"
+            >
+              向下滑动查看更多成员...
+            </div>
+          )}
         </div>
       )}
 
@@ -624,21 +741,21 @@ const ChatRoomDetailPage: React.FC = () => {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendText()}
-              placeholder={room.isMuted ? '你已被禁言' : '说点什么...'}
-              disabled={room.isMuted}
+              placeholder={!room.isActive ? '聊天室已关闭' : room.isMuted ? '你已被禁言' : '说点什么...'}
+              disabled={room.isMuted || !room.isActive}
               className="flex-1 min-w-0 px-4 py-2.5 bg-gray-100 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
             />
             <button
               onPointerDown={startRecording}
               onPointerUp={stopRecording}
               onPointerLeave={stopRecording}
-              className="p-2.5 text-gray-500 flex-shrink-0"
+              className={`p-2.5 text-gray-500 flex-shrink-0 ${(!room.isActive || room.isMuted) ? 'opacity-50 pointer-events-none' : ''}`}
             >
               <Mic className="w-7 h-7" />
             </button>
             <button
               onClick={handleSendText}
-              disabled={!inputText.trim() || sending}
+              disabled={!inputText.trim() || sending || !room.isActive}
               className="px-5 py-2.5 bg-orange-500 text-white rounded-full text-base font-medium disabled:bg-gray-300 disabled:text-gray-500 flex-shrink-0"
             >
               发送

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Gift,
@@ -7,10 +7,12 @@ import {
   CheckCircle,
   Lock,
   ArrowRight,
+  QrCode,
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useAuth } from '@client/src/contexts/AuthContext';
 import { supplementInviter } from '@client/src/api';
+import { Html5Qrcode } from 'html5-qrcode';
 
 const SupplementInviterPage = () => {
   const navigate = useNavigate();
@@ -19,6 +21,8 @@ const SupplementInviterPage = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +48,74 @@ const SupplementInviterPage = () => {
       setLoading(false);
     }
   };
+
+  // 扫码功能：扫描邀请二维码自动填写邀请码
+  const handleScanInviteCode = () => {
+    setShowScanner(true);
+    setError('');
+    // 弹窗显示后自动启动摄像头
+    setTimeout(() => {
+      startScanner();
+    }, 300);
+  };
+
+  // 启动摄像头扫码
+  const startScanner = async () => {
+    try {
+      const html5QrCode = new Html5Qrcode('qr-reader-supplement');
+      scannerRef.current = html5QrCode;
+
+      await html5QrCode.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+        },
+        (decodedText) => {
+          // 扫描成功，提取邀请码
+          let code = decodedText.trim();
+          // 如果是URL，提取最后的邀请码参数
+          if (code.includes('invite=') || code.includes('inviteCode=')) {
+            const url = new URL(code);
+            code = url.searchParams.get('invite') || url.searchParams.get('inviteCode') || code;
+          } else if (code.includes('/register?')) {
+            try {
+              const url = new URL(code);
+              code = url.searchParams.get('invite') || url.searchParams.get('inviteCode') || code;
+            } catch {}
+          }
+          setInviteCode(code);
+          stopScanner();
+        },
+        () => {
+          // 扫描失败，忽略
+        }
+      );
+    } catch (err) {
+      logger.error('启动摄像头失败', err);
+      setError('启动摄像头失败，请检查摄像头权限');
+    }
+  };
+
+  // 停止扫码
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.stop().then(() => {
+        scannerRef.current?.clear();
+        scannerRef.current = null;
+      }).catch(() => {});
+    }
+    setShowScanner(false);
+  };
+
+  // 组件卸载时停止扫码
+  useEffect(() => {
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {});
+      }
+    };
+  }, []);
 
   if (user?.isInvited && !success) {
     return (
@@ -150,8 +222,17 @@ const SupplementInviterPage = () => {
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value)}
                 placeholder="请输入邀请人的邀请码"
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-colors text-sm"
+                className="w-full pl-10 pr-20 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-colors text-sm"
               />
+              <button
+                type="button"
+                onClick={handleScanInviteCode}
+                className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-orange-500 hover:bg-orange-50 rounded-lg transition-colors inline-flex items-center gap-1 text-xs font-medium"
+                title="扫码输入邀请码"
+              >
+                <QrCode size={16} />
+                <span>扫码</span>
+              </button>
             </div>
           </div>
 
@@ -165,6 +246,33 @@ const SupplementInviterPage = () => {
           </button>
         </form>
       </div>
+
+      {/* 扫码弹窗 */}
+      {showScanner && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-lg font-semibold">扫描邀请二维码</h3>
+              <button
+                onClick={stopScanner}
+                className="text-white hover:text-gray-300 p-2"
+              >
+                ✕
+              </button>
+            </div>
+            <div id="qr-reader-supplement" className="w-full rounded-xl overflow-hidden" />
+            <p className="text-gray-400 text-sm text-center mt-4">
+              将邀请二维码放入框内即可自动识别
+            </p>
+            <button
+              onClick={startScanner}
+              className="w-full mt-4 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl"
+            >
+              重新扫码
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

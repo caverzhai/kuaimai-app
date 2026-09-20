@@ -14,8 +14,11 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AdminController = void 0;
 const common_1 = require("@nestjs/common");
-const auth_guard_1 = require("@server/common/guards/auth.guard");
+const auth_guard_1 = require("../../common/guards/auth.guard");
 const admin_service_1 = require("./admin.service");
+const database_module_1 = require("../../database/database.module");
+const schema_1 = require("../../database/schema");
+const drizzle_orm_1 = require("drizzle-orm");
 const ADMIN_PHONES = ['13800000000'];
 function checkAdmin(req) {
     const phone = req.user?.phone;
@@ -25,8 +28,10 @@ function checkAdmin(req) {
 }
 let AdminController = class AdminController {
     adminService;
-    constructor(adminService) {
+    db;
+    constructor(adminService, db) {
         this.adminService = adminService;
+        this.db = db;
     }
     async getProductList(page, pageSize, category, keyword, status) {
         return this.adminService.getProductList({
@@ -97,6 +102,51 @@ let AdminController = class AdminController {
             pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
             status,
         });
+    }
+    async resetUpgradeTasks(req) {
+        checkAdmin(req);
+        const deleted = await this.db
+            .delete(schema_1.upgradeTasks)
+            .where((0, drizzle_orm_1.inArray)(schema_1.upgradeTasks.status, ['pending', 'in_progress']))
+            .returning({ id: schema_1.upgradeTasks.id, userId: schema_1.upgradeTasks.userId, taskIndex: schema_1.upgradeTasks.taskIndex, title: schema_1.upgradeTasks.title });
+        return { success: true, deletedCount: deleted.length, deleted };
+    }
+    async updateUserPhone(req, id, body) {
+        checkAdmin(req);
+        return this.adminService.updateUserPhone(id, body.phone);
+    }
+    async batchDeleteUsers(req, body) {
+        checkAdmin(req);
+        const keepPhones = body.keepPhones || [];
+        const deleteUserIds = body.deleteUserIds || [];
+        const allUsers = await this.db
+            .select({ id: schema_1.users.id, phone: schema_1.users.phone, nickname: schema_1.users.nickname })
+            .from(schema_1.users);
+        let usersToDelete;
+        if (deleteUserIds.length > 0) {
+            usersToDelete = allUsers.filter((u) => deleteUserIds.includes(u.id) && !keepPhones.includes(u.phone));
+        }
+        else {
+            usersToDelete = allUsers.filter((u) => !keepPhones.includes(u.phone));
+        }
+        const deleteIds = usersToDelete.map((u) => u.id);
+        if (deleteIds.length === 0) {
+            return { success: true, deletedCount: 0, users: [] };
+        }
+        await this.db.delete(schema_1.upgradeTasks).where((0, drizzle_orm_1.inArray)(schema_1.upgradeTasks.userId, deleteIds));
+        await this.db.delete(schema_1.mallOrders).where((0, drizzle_orm_1.inArray)(schema_1.mallOrders.userId, deleteIds));
+        await this.db.delete(schema_1.consultOrders).where((0, drizzle_orm_1.inArray)(schema_1.consultOrders.studentId, deleteIds));
+        await this.db.delete(schema_1.consultOrders).where((0, drizzle_orm_1.inArray)(schema_1.consultOrders.consultantId, deleteIds));
+        await this.db.delete(schema_1.teamRelations).where((0, drizzle_orm_1.inArray)(schema_1.teamRelations.userId, deleteIds));
+        await this.db.delete(schema_1.teamRelations).where((0, drizzle_orm_1.inArray)(schema_1.teamRelations.parentId, deleteIds));
+        await this.db.delete(schema_1.inviteRecords).where((0, drizzle_orm_1.inArray)(schema_1.inviteRecords.inviterId, deleteIds));
+        await this.db.delete(schema_1.inviteRecords).where((0, drizzle_orm_1.inArray)(schema_1.inviteRecords.inviteeId, deleteIds));
+        await this.db.delete(schema_1.users).where((0, drizzle_orm_1.inArray)(schema_1.users.id, deleteIds));
+        return {
+            success: true,
+            deletedCount: deleteIds.length,
+            deletedUsers: usersToDelete,
+        };
     }
 };
 exports.AdminController = AdminController;
@@ -225,9 +275,34 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", Promise)
 ], AdminController.prototype, "getConsultOrderList", null);
+__decorate([
+    (0, common_1.Post)('reset-upgrade-tasks'),
+    __param(0, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AdminController.prototype, "resetUpgradeTasks", null);
+__decorate([
+    (0, common_1.Patch)('users/:id/phone'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", Promise)
+], AdminController.prototype, "updateUserPhone", null);
+__decorate([
+    (0, common_1.Post)('users/batch-delete'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AdminController.prototype, "batchDeleteUsers", null);
 exports.AdminController = AdminController = __decorate([
     (0, common_1.Controller)('api/admin'),
     (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
-    __metadata("design:paramtypes", [admin_service_1.AdminService])
+    __param(1, (0, common_1.Inject)(database_module_1.DRIZZLE_DATABASE)),
+    __metadata("design:paramtypes", [admin_service_1.AdminService, Object])
 ], AdminController);
 //# sourceMappingURL=admin.controller.js.map

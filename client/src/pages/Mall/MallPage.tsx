@@ -20,6 +20,7 @@ import type {
   ProductListResponse,
 } from '@shared/api.interface';
 import { Image } from '@client/src/components/ui/image';
+import { getCache, setCache } from '../../utils/cache';
 
 const PAGE_SIZE = 12;
 
@@ -35,7 +36,7 @@ const FIXED_CATEGORIES = [
   { id: 'other', name: '其它' },
 ];
 
-export default function MallPage() {
+export default function MallPage({ visible = true }: { visible?: boolean }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const taskAmount = searchParams.get('taskAmount');
@@ -43,19 +44,44 @@ export default function MallPage() {
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [keyword, setKeyword] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  const [products, setProducts] = useState<ProductInfo[]>([]);
+  // 关键：使用lazy initial state，组件第一次渲染时就从缓存读取数据，立即显示
+  const [products, setProducts] = useState<ProductInfo[]>(() => {
+    try {
+      const cacheKey = `mall_products___${taskAmount || ''}`; // activeCategory='', keyword=''
+      const cached = getCache<{ items: ProductInfo[]; total: number }>(cacheKey, true);
+      if (cached && cached.items && cached.items.length > 0) {
+        return cached.items;
+      }
+    } catch (e) {
+      // 忽略缓存读取错误
+    }
+    return [];
+  });
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState<number>(() => {
+    try {
+      const cacheKey = `mall_products___${taskAmount || ''}`; // activeCategory='', keyword=''
+      const cached = getCache<{ items: ProductInfo[]; total: number }>(cacheKey, true);
+      if (cached) {
+        return cached.total || 0;
+      }
+    } catch (e) {
+      // 忽略缓存读取错误
+    }
+    return 0;
+  });
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
+    if (!visible) return;
     setPage(1);
-    setProducts([]);
+    // 后台从服务器更新（缓存数据已经在初始状态中显示了）
     fetchProducts(1, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCategory, keyword]);
+  }, [activeCategory, keyword, taskAmount, visible]);
 
   async function fetchCategories() {
     try {
@@ -85,17 +111,24 @@ export default function MallPage() {
       if (activeCategory) params.category = activeCategory;
       if (keyword) params.keyword = keyword;
       const data = (await getProductList(params)) as ProductListResponse;
+      // 防御性处理：确保items是数组
+      const items = Array.isArray(data?.items) ? data.items : [];
       // 升级任务模式：只显示指定金额的商品
-      let filteredItems = data.items;
+      let filteredItems = items;
       if (taskAmount) {
-        filteredItems = data.items.filter((p: ProductInfo) => {
+        filteredItems = items.filter((p: ProductInfo) => {
           const price = parseFloat(p.price);
           return Math.abs(price - parseFloat(taskAmount)) < 0.01;
         });
       }
       setProducts((prev) => (replace ? filteredItems : [...prev, ...filteredItems]));
-      setTotal(taskAmount ? filteredItems.length : data.total);
+      setTotal(taskAmount ? filteredItems.length : (data?.total ?? 0));
       setPage(p);
+      // 写入缓存（只缓存第一页）
+      if (replace && p === 1) {
+        const cacheKey = `mall_products_${activeCategory}_${keyword}_${taskAmount || ''}`;
+        setCache(cacheKey, { items: filteredItems, total: taskAmount ? filteredItems.length : (data?.total ?? 0) });
+      }
     } catch (err) {
       logger.error('加载商品失败', err);
       setError('加载失败，请稍后重试');

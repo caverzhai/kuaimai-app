@@ -14,10 +14,11 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UploadController = void 0;
 const common_1 = require("@nestjs/common");
-const auth_guard_1 = require("@server/common/guards/auth.guard");
+const auth_guard_1 = require("../../common/guards/auth.guard");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const sharp_1 = require("sharp");
 let UploadController = class UploadController {
     async debug() {
         try {
@@ -83,8 +84,51 @@ let UploadController = class UploadController {
                 return { success: false, message: '无效的图片格式' };
             }
             const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-            const imageBuffer = Buffer.from(matches[2], 'base64');
-            console.log(`[Upload] 图片解析成功，格式: ${ext}, 大小: ${imageBuffer.length} bytes`);
+            let imageBuffer = Buffer.from(matches[2], 'base64');
+            console.log(`[Upload] 图片解析成功，格式: ${ext}, 原始大小: ${imageBuffer.length} bytes`);
+            try {
+                const metadata = await (0, sharp_1.default)(imageBuffer).metadata();
+                const maxDim = 1280;
+                let needResize = false;
+                let resizeWidth;
+                let resizeHeight;
+                if (metadata.width && metadata.height) {
+                    if (metadata.width > maxDim || metadata.height > maxDim) {
+                        needResize = true;
+                        if (metadata.width >= metadata.height) {
+                            resizeWidth = maxDim;
+                        }
+                        else {
+                            resizeHeight = maxDim;
+                        }
+                    }
+                }
+                if (needResize) {
+                    const compressedBuffer = await (0, sharp_1.default)(imageBuffer)
+                        .resize({
+                        width: resizeWidth,
+                        height: resizeHeight,
+                        fit: 'inside',
+                        withoutEnlargement: true,
+                    })
+                        .jpeg({ quality: 80, mozjpeg: true })
+                        .toBuffer();
+                    console.log(`[Upload] 图片压缩完成: ${metadata.width}x${metadata.height} -> 压缩后 ${compressedBuffer.length} bytes (原始 ${imageBuffer.length} bytes)`);
+                    imageBuffer = compressedBuffer;
+                }
+                else {
+                    const compressedBuffer = await (0, sharp_1.default)(imageBuffer)
+                        .jpeg({ quality: 80, mozjpeg: true })
+                        .toBuffer();
+                    if (compressedBuffer.length < imageBuffer.length) {
+                        console.log(`[Upload] 图片质量压缩: ${imageBuffer.length} -> ${compressedBuffer.length} bytes`);
+                        imageBuffer = compressedBuffer;
+                    }
+                }
+            }
+            catch (compressError) {
+                console.warn('[Upload] 图片压缩失败，使用原图:', compressError);
+            }
             const randomName = crypto.randomBytes(8).toString('hex');
             const filename = `${Date.now()}_${randomName}.${ext}`;
             const possiblePublicDirs = [
@@ -140,6 +184,57 @@ let UploadController = class UploadController {
             return { success: false, message: '图片上传失败: ' + error.message };
         }
     }
+    async uploadAudio(body) {
+        try {
+            if (!body.base64) {
+                return { success: false, message: 'base64 数据不能为空' };
+            }
+            const matches = body.base64.match(/^data:audio\/(\w+);base64,(.+)$/);
+            if (!matches) {
+                return { success: false, message: '无效的音频 base64 格式' };
+            }
+            const ext = matches[1] === 'webm' ? 'webm' : matches[1];
+            const audioBuffer = Buffer.from(matches[2], 'base64');
+            console.log(`[Upload] 音频解析成功，格式: ${ext}, 大小: ${audioBuffer.length} bytes`);
+            const randomName = crypto.randomBytes(8).toString('hex');
+            const filename = `${Date.now()}_${randomName}.${ext}`;
+            const possiblePublicDirs = [
+                path.join(process.cwd(), 'server', 'public'),
+                path.join(process.cwd(), 'public'),
+                path.join(process.cwd(), 'dist', 'public'),
+                path.join(process.cwd(), 'server', 'dist', 'public'),
+            ];
+            let publicDir = possiblePublicDirs[0];
+            for (let i = 0; i < possiblePublicDirs.length; i++) {
+                if (fs.existsSync(possiblePublicDirs[i])) {
+                    publicDir = possiblePublicDirs[i];
+                    break;
+                }
+            }
+            if (!fs.existsSync(publicDir)) {
+                fs.mkdirSync(publicDir, { recursive: true });
+            }
+            const uploadDir = path.join(publicDir, 'uploads');
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+            const filePath = path.join(uploadDir, filename);
+            fs.writeFileSync(filePath, audioBuffer);
+            console.log(`[Upload] 音频文件已保存: ${filePath}`);
+            const baseUrl = process.env.APP_URL || 'https://backend-production-5d79.up.railway.app';
+            const audioUrl = `${baseUrl}/uploads/${filename}`;
+            return {
+                success: true,
+                url: audioUrl,
+                filename,
+                size: audioBuffer.length,
+            };
+        }
+        catch (error) {
+            console.error('[Upload] 音频上传失败:', error);
+            return { success: false, message: '音频上传失败: ' + error.message };
+        }
+    }
 };
 exports.UploadController = UploadController;
 __decorate([
@@ -156,6 +251,14 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], UploadController.prototype, "uploadImage", null);
+__decorate([
+    (0, common_1.Post)('audio'),
+    (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], UploadController.prototype, "uploadAudio", null);
 exports.UploadController = UploadController = __decorate([
     (0, common_1.Controller)('api/upload')
 ], UploadController);

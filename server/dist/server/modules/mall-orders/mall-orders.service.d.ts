@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '@shared/api.interface';
+import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '../../../shared/api.interface';
 export declare class MallOrdersService {
     private readonly db;
     private readonly logger;
@@ -10,4 +10,12 @@ export declare class MallOrdersService {
     getOrderDetail(userId: string, id: string): Promise<MallOrderInfo>;
     uploadPaymentScreenshot(userId: string, id: string, dto: PaymentScreenshotDTO): Promise<MallOrderInfo>;
     confirmDelivery(userId: string, id: string): Promise<MallOrderInfo>;
+    confirmPayment(operatorPhone: string, id: string): Promise<MallOrderInfo>;
+    getAllOrders(operatorPhone: string, page: number, pageSize: number, status?: string): Promise<MallOrderListResponse>;
+    autoDeliverExpiredOrdersCron(): Promise<{
+        delivered: number;
+    }>;
+    autoConfirmExpiredOrdersCron(): Promise<{
+        confirmed: number;
+    }>;
 }

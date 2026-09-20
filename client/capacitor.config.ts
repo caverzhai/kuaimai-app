@@ -1,13 +1,13 @@
-import type { CapacitorConfig } from '@capacitor/cli';
+﻿import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.kuaimai.app',
   appName: '快卖',
+  version: '2.24.4',
   webDir: 'dist',
   bundledWebRuntime: false,
-  // 移除server.url，使用本地打包的前端文件，大幅提升APP加载速度和响应速度
-  // API请求通过axiosForBackend指向远程服务器
-  androidScheme: 'https',
+  // 显式使用http scheme，确保本地文件正常加载
+  androidScheme: 'http',
   plugins: {
     SplashScreen: {
       launchShowDuration: 1500,

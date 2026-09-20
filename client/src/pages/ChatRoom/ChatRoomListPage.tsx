@@ -12,6 +12,7 @@ import {
   rejectRoomApplication,
 } from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
+import { getCache, setCache } from '../../utils/cache';
 import {
   MessageCircle,
   Users,
@@ -66,13 +67,53 @@ interface RoomApplication {
   createdAt: string;
 }
 
-const ChatRoomListPage: React.FC = () => {
+const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [rooms, setRooms] = useState<ChatRoom[]>([]);
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [applications, setApplications] = useState<RoomApplication[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // 辅助函数：从AuthContext缓存中获取当前用户ID
+  const getCachedUserId = (): string | null => {
+    try {
+      const cachedUserStr = localStorage.getItem('kuaimai_user_cache');
+      if (cachedUserStr) {
+        const cachedUser = JSON.parse(cachedUserStr);
+        return cachedUser.id || null;
+      }
+    } catch (e) {
+      // 忽略
+    }
+    return null;
+  };
+
+  // 辅助函数：从缓存读取聊天室列表数据
+  const getCachedChatRoomData = () => {
+    try {
+      const userId = user?.id || getCachedUserId();
+      if (!userId) return null;
+      const cached = getCache<{rooms: ChatRoom[]; friends: Friend[]; applications: RoomApplication[]}>(`chat_room_list_${userId}`, true);
+      return cached;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // 使用lazy initial state，组件第一次渲染时就从缓存读取数据，立即显示
+  const [rooms, setRooms] = useState<ChatRoom[]>(() => {
+    const cached = getCachedChatRoomData();
+    return cached?.rooms || [];
+  });
+  const [friends, setFriends] = useState<Friend[]>(() => {
+    const cached = getCachedChatRoomData();
+    return cached?.friends || [];
+  });
+  const [applications, setApplications] = useState<RoomApplication[]>(() => {
+    const cached = getCachedChatRoomData();
+    return cached?.applications || [];
+  });
+  const [loading, setLoading] = useState(() => {
+    const cached = getCachedChatRoomData();
+    return !cached; // 有缓存就不显示loading
+  });
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showPersonalModal, setShowPersonalModal] = useState(false);
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
@@ -99,17 +140,41 @@ const ChatRoomListPage: React.FC = () => {
         getFriendList().catch(() => ({ items: [] })),
         getRoomApplications().catch(() => ({ items: [] })),
       ]);
-      setRooms(roomData.items || []);
-      setFriends(friendData.items || []);
-      setApplications(appData.items || []);
+      const roomsList = roomData.items || [];
+      const friendsList = friendData.items || [];
+      const appsList = appData.items || [];
+      setRooms(roomsList);
+      setFriends(friendsList);
+      setApplications(appsList);
+      // 写入缓存
+      if (user) {
+        setCache(`chat_room_list_${user.id}`, {
+          rooms: roomsList,
+          friends: friendsList,
+          applications: appsList,
+        });
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || '加载失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    // 先从缓存读取数据，立即显示（即使缓存过期也先显示，后台再更新）
+    if (user) {
+      const cached = getCache<{rooms: ChatRoom[]; friends: Friend[]; applications: RoomApplication[]}>(`chat_room_list_${user.id}`, true);
+      if (cached) {
+        if (cached.rooms) setRooms(cached.rooms);
+        if (cached.friends) setFriends(cached.friends);
+        if (cached.applications) setApplications(cached.applications);
+        setLoading(false);
+      }
+    }
+    // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
+    if (!visible) return;
+    // 后台从服务器更新
     loadData(true);
     const interval = setInterval(() => {
       if (!showApplyModal && !showPersonalModal && !showCloseConfirm) {
@@ -117,7 +182,7 @@ const ChatRoomListPage: React.FC = () => {
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [loadData, showApplyModal, showPersonalModal, showCloseConfirm]);
+  }, [loadData, showApplyModal, showPersonalModal, showCloseConfirm, user, visible]);
 
   const handleSubmitApplication = async () => {
     if (!applyRoomName.trim()) {

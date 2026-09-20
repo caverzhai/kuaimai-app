@@ -17,6 +17,8 @@ import {
   confirmConsultPayment,
   reviewConsultWork,
   updateAdminUserPhone,
+  adminGetAllChatRooms,
+  adminDeleteChatRoom,
 } from '@client/src/api';
 import type {
   ProductInfo,
@@ -40,12 +42,16 @@ import {
   Plus,
   ChevronLeft,
   Loader2,
+  X,
+  MessageCircle,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Image } from '@client/src/components/ui/image';
 import { ProductForm } from '@client/src/components/ProductForm';
+import { playNewTaskSound } from '@client/src/utils/notification-sound';
 
-type TabType = 'products' | 'mall-orders' | 'users' | 'company-audits' | 'consult-orders' | 'qrcodes';
+type TabType = 'products' | 'mall-orders' | 'users' | 'company-audits' | 'consult-orders' | 'qrcodes' | 'chat-rooms';
 
 const AdminPage = () => {
   const [activeTab, setActiveTab] = useState<TabType>('products');
@@ -57,6 +63,7 @@ const AdminPage = () => {
   const [companyAudits, setCompanyAudits] = useState<UserInfo[]>([]);
   const [consultOrders, setConsultOrders] = useState<ConsultOrderInfo[]>([]);
   const [mallQrcode, setMallQrcode] = useState<PlatformQrcodeInfo | null>(null);
+  const [chatRooms, setChatRooms] = useState<any[]>([]);
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductInfo | null>(null);
 
@@ -71,6 +78,17 @@ const AdminPage = () => {
   const [newPhone, setNewPhone] = useState('');
   const [phoneSubmitting, setPhoneSubmitting] = useState(false);
   const [phoneError, setPhoneError] = useState('');
+
+  // 查看用户资料状态
+  const [viewingUser, setViewingUser] = useState<UserInfo | null>(null);
+
+  // 删除用户相关状态
+  const [deletingUser, setDeletingUser] = useState<UserInfo | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+
+  // 记录上一次待审核订单数量，用于新订单提示音
+  const prevPendingReviewCountRef = useRef<number>(0);
+  const prevPendingConsultCountRef = useRef<number>(0);
 
   const LOGISTICS_COMPANIES = [
     '顺丰速运',
@@ -105,7 +123,15 @@ const AdminPage = () => {
         }
         case 'mall-orders': {
           const data = await getAdminMallOrders({ page: 1, pageSize: 20 });
-          setMallOrders(data.items || []);
+          const orders = data.items || [];
+          setMallOrders(orders);
+          // 检测新的待审核订单
+          const pendingCount = orders.filter(o => o.status === 'PENDING_REVIEW').length;
+          if (prevPendingReviewCountRef.current > 0 && pendingCount > prevPendingReviewCountRef.current) {
+            playNewTaskSound();
+            toast.info('有新的商城订单待审核！');
+          }
+          prevPendingReviewCountRef.current = pendingCount;
           break;
         }
         case 'users': {
@@ -120,7 +146,15 @@ const AdminPage = () => {
         }
         case 'consult-orders': {
           const data = await getAdminConsultOrders({ page: 1, pageSize: 20 });
-          setConsultOrders(data.items || []);
+          const orders = data.items || [];
+          setConsultOrders(orders);
+          // 检测新的待审核咨询订单
+          const pendingCount = orders.filter(o => o.status === 'PENDING_CONFIRM').length;
+          if (prevPendingConsultCountRef.current > 0 && pendingCount > prevPendingConsultCountRef.current) {
+            playNewTaskSound();
+            toast.info('有新的咨询订单待审核！');
+          }
+          prevPendingConsultCountRef.current = pendingCount;
           break;
         }
         case 'qrcodes': {
@@ -140,6 +174,11 @@ const AdminPage = () => {
           }
           break;
         }
+        case 'chat-rooms': {
+          const data = await adminGetAllChatRooms();
+          setChatRooms(data.items || []);
+          break;
+        }
       }
     } catch (error) {
       logger.error(`加载${tab}失败`, error);
@@ -155,6 +194,7 @@ const AdminPage = () => {
     { key: 'company-audits', label: '公司审核', icon: FileCheck },
     { key: 'consult-orders', label: '咨询订单', icon: MessageSquare },
     { key: 'qrcodes', label: '收款码管理', icon: QrCode },
+    { key: 'chat-rooms', label: '聊天室管理', icon: MessageCircle },
   ];
 
   async function handleReviewPayment(orderId: string, passed: boolean) {
@@ -269,6 +309,31 @@ const AdminPage = () => {
       logger.error('修改手机号失败', error);
     } finally {
       setPhoneSubmitting(false);
+    }
+  }
+
+  // 删除用户
+  async function handleDeleteUser() {
+    if (!deletingUser) return;
+    setDeleteSubmitting(true);
+    try {
+      const response = await fetch('/api/admin/users/batch-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('kuaimai_token')}`,
+        },
+        body: JSON.stringify({ keepPhones: ['13800000000'], deleteUserIds: [deletingUser.id] }),
+      });
+      if (!response.ok) throw new Error('删除失败');
+      toast('用户删除成功');
+      setDeletingUser(null);
+      loadTabData('users');
+    } catch (error: any) {
+      toast(error?.message || '删除失败');
+      logger.error('删除用户失败', error);
+    } finally {
+      setDeleteSubmitting(false);
     }
   }
 
@@ -564,12 +629,39 @@ const AdminPage = () => {
                             {u.phone} · {LEVEL_NAMES?.[u.level] || u.level}
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleOpenPhoneEdit(u)}
-                          className="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 border border-blue-200 rounded hover:bg-blue-50"
-                        >
-                          修改手机号
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setViewingUser(u)}
+                            className="text-xs text-orange-600 hover:text-orange-700 px-2 py-1 border border-orange-200 rounded hover:bg-orange-50"
+                          >
+                            查看资料
+                          </button>
+                          <button
+                            onClick={() => handleOpenPhoneEdit(u)}
+                            className="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 border border-blue-200 rounded hover:bg-blue-50"
+                          >
+                            修改手机号
+                          </button>
+                          {u.phone !== '13800000000' && (
+                            <button
+                              onClick={() => {
+                                if ((u.directInviteCount || 0) > 0) {
+                                  toast('该用户已有下线，无法删除');
+                                  return;
+                                }
+                                setDeletingUser(u);
+                              }}
+                              className={`text-xs px-2 py-1 border rounded ${
+                                (u.directInviteCount || 0) > 0
+                                  ? 'text-gray-400 border-gray-200 cursor-not-allowed'
+                                  : 'text-red-600 hover:text-red-700 border-red-200 hover:bg-red-50'
+                              }`}
+                              title={(u.directInviteCount || 0) > 0 ? '已有下线，无法删除' : '删除用户'}
+                            >
+                              删除
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -869,6 +961,87 @@ const AdminPage = () => {
                 </div>
               </div>
             )}
+
+            {/* 聊天室管理 */}
+            {activeTab === 'chat-rooms' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold">聊天室管理</h3>
+                  <span className="text-xs text-gray-500">已结束超过24小时的聊天室将自动删除</span>
+                </div>
+                {loading ? (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
+                  </div>
+                ) : chatRooms.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400">
+                    <MessageCircle className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    暂无聊天室
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {chatRooms.map((room: any) => (
+                      <div
+                        key={room.id}
+                        className={`p-4 rounded-lg border ${
+                          room.isActive && !room.isExpired
+                            ? 'bg-green-50 border-green-200'
+                            : 'bg-gray-50 border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-900">{room.name}</span>
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full ${
+                                  room.isActive && !room.isExpired
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-gray-200 text-gray-600'
+                                }`}
+                              >
+                                {room.isActive && !room.isExpired ? '运行中' : '已结束'}
+                              </span>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                {room.type === 'public' ? '公开' : '个人'}
+                              </span>
+                            </div>
+                            {room.description && (
+                              <p className="text-sm text-gray-600 mt-1 line-clamp-2">{room.description}</p>
+                            )}
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
+                              <span>创建者：{room.creatorNickname}（{room.creatorPhone}）</span>
+                              {room.scheduledStartTime && (
+                                <span>开始：{new Date(room.scheduledStartTime).toLocaleString('zh-CN')}</span>
+                              )}
+                              {room.scheduledEndTime && (
+                                <span>结束：{new Date(room.scheduledEndTime).toLocaleString('zh-CN')}</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`确定删除聊天室「${room.name}」吗？此操作不可恢复。`)) {
+                                adminDeleteChatRoom(room.id)
+                                  .then(() => {
+                                    toast.success('聊天室已删除');
+                                    loadTabData('chat-rooms');
+                                  })
+                                  .catch(() => toast.error('删除失败'));
+                              }
+                            }}
+                            className="ml-3 p-2 text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0"
+                            title="删除聊天室"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </main>
@@ -993,6 +1166,70 @@ const AdminPage = () => {
         </div>
       )}
 
+      {/* 查看用户资料对话框 */}
+      {viewingUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setViewingUser(null)}>
+          <div className="bg-white rounded-xl w-full max-w-md p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">用户详细资料</h3>
+              <button onClick={() => setViewingUser(null)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 pb-3 border-b">
+                <Image src={viewingUser.avatarUrl || 'https://picsum.photos/seed/user/60/60'} alt={viewingUser.nickname} className="w-14 h-14 rounded-full object-cover" />
+                <div>
+                  <p className="font-bold text-lg">{viewingUser.nickname}</p>
+                  <p className="text-sm text-gray-500">{LEVEL_NAMES?.[viewingUser.level] || viewingUser.level}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div><span className="text-gray-500">手机号：</span>{viewingUser.phone}</div>
+                <div><span className="text-gray-500">性别：</span>{viewingUser.gender || '未设置'}</div>
+                <div><span className="text-gray-500">年龄：</span>{viewingUser.age || '未设置'}</div>
+                <div><span className="text-gray-500">行业：</span>{viewingUser.industry || '未设置'}</div>
+                <div className="col-span-2"><span className="text-gray-500">真实姓名：</span>{viewingUser.realName || '未设置'}</div>
+                <div className="col-span-2"><span className="text-gray-500">微信号：</span>{viewingUser.wechatId || '未设置'}</div>
+                <div className="col-span-2"><span className="text-gray-500">收货地址：</span>{viewingUser.receiveAddress || '未设置'}</div>
+                <div className="col-span-2"><span className="text-gray-500">收货电话：</span>{viewingUser.receivePhone || '未设置'}</div>
+                <div className="col-span-2"><span className="text-gray-500">资质证明：</span>{viewingUser.qualification || '未设置'}</div>
+                <div className="col-span-2"><span className="text-gray-500">服务标准：</span>{viewingUser.serviceStandard || '未设置'}</div>
+                <div><span className="text-gray-500">直推人数：</span>{viewingUser.directInviteCount || 0}</div>
+                <div><span className="text-gray-500">团队人数：</span>{viewingUser.teamTotalCount || 0}</div>
+              </div>
+              {viewingUser.idCardFrontUrl && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">身份证正面：</p>
+                  <Image src={viewingUser.idCardFrontUrl} alt="身份证正面" className="w-full rounded-lg border" />
+                </div>
+              )}
+              {viewingUser.idCardBackUrl && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">身份证反面：</p>
+                  <Image src={viewingUser.idCardBackUrl} alt="身份证反面" className="w-full rounded-lg border" />
+                </div>
+              )}
+              {viewingUser.wechatQrcodeUrl && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">微信收款码：</p>
+                  <Image src={viewingUser.wechatQrcodeUrl} alt="微信收款码" className="w-40 rounded-lg border" />
+                </div>
+              )}
+              {viewingUser.alipayQrcodeUrl && (
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">支付宝收款码：</p>
+                  <Image src={viewingUser.alipayQrcodeUrl} alt="支付宝收款码" className="w-40 rounded-lg border" />
+                </div>
+              )}
+            </div>
+            <button onClick={() => setViewingUser(null)} className="w-full h-11 mt-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 修改用户手机号对话框 */}
       {editingPhoneUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1031,6 +1268,38 @@ const AdminPage = () => {
                 className="flex-1 h-11 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
               >
                 {phoneSubmitting ? '提交中...' : '确认修改'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除用户确认对话框 */}
+      {deletingUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md p-6">
+            <h3 className="text-lg font-bold mb-4">确认删除用户</h3>
+            <div className="mb-6">
+              <p className="text-sm text-gray-600 mb-2">确定要删除以下用户吗？</p>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="font-medium">{deletingUser.nickname}</p>
+                <p className="text-xs text-gray-500">{deletingUser.phone}</p>
+              </div>
+              <p className="text-xs text-red-500 mt-3">删除后该用户的所有订单、任务、团队关系将被清除，此操作不可恢复。</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeletingUser(null)}
+                className="flex-1 h-11 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleDeleteUser}
+                disabled={deleteSubmitting}
+                className="flex-1 h-11 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50"
+              >
+                {deleteSubmitting ? '删除中...' : '确认删除'}
               </button>
             </div>
           </div>
