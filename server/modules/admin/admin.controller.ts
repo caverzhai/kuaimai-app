@@ -14,6 +14,7 @@ import {
 import type { Request } from 'express';
 
 import { AuthGuard } from '@server/common/guards/auth.guard';
+import { AdminGuard } from '@server/common/guards/admin.guard';
 import { AdminService } from './admin.service';
 import { DRIZZLE_DATABASE } from '@server/database/database.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
@@ -71,7 +72,7 @@ interface QrcodeUpdateBody {
 }
 
 @Controller('api/admin')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, AdminGuard)
 export class AdminController {
   constructor(
     private readonly adminService: AdminService,
