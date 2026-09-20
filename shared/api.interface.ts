@@ -1,4 +1,4 @@
-﻿// 鍏变韩绫诲瀷瀹氫箟
+// 鍏变韩绫诲瀷瀹氫箟
 export interface UserInfo {
   id: string;
   phone: string;
@@ -228,6 +228,7 @@ export interface TeamTreeNode {
   avatarUrl?: string;
   level: string;
   children: TeamTreeNode[];
+  descendantCount?: number;
 }
 
 export interface TeamInfo {

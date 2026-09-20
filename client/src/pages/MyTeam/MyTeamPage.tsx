@@ -28,6 +28,36 @@ function TeamNode({ node, depth, isLast, isRoot }: TeamNodeProps) {
   const hasChildren = node.children && node.children.length > 0;
   const levelName = LEVEL_NAMES[node.level] || node.level;
   const levelLayer = LEVEL_LAYERS[node.level] || 0;
+  // 第5级及以上（depth >= 5）只显示人数，不显示姓名
+  const isCollapsedLevel = depth >= 5;
+
+  if (isCollapsedLevel) {
+    return (
+      <div className="relative">
+        {!isRoot && (
+          <div
+            className="absolute left-0 border-l border-gray-200"
+            style={{ top: 0, bottom: isLast ? '50%' : 0, width: '1px' }}
+          />
+        )}
+        <div
+          className="flex items-center gap-2 py-2 pl-1"
+          style={{ paddingLeft: `${depth * 24 + 4}px` }}
+        >
+          {!isRoot && (
+            <div className="w-3 h-px bg-gray-200 flex-shrink-0" />
+          )}
+          <div className="w-5 flex-shrink-0" />
+          <div className="flex items-center gap-2 flex-1 bg-gray-50 rounded-lg border border-gray-100 px-3 py-2">
+            <Users className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <span className="text-sm text-gray-500">
+              第{depth}级下级 · 共 {node.descendantCount ?? node.children.length} 人
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative">

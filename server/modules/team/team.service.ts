@@ -113,11 +113,13 @@ export class TeamService {
       childrenByParent.set(parentId, existing);
     }
 
-    // 递归构建树
+    // 递归构建树，同时计算每个节点的后代总数
     const buildTree = (nodeUserId: string): TeamTreeNode => {
       const info = userInfoMap.get(nodeUserId);
       const childIds = childrenByParent.get(nodeUserId) ?? [];
       const children: TeamTreeNode[] = childIds.map((cid: string) => buildTree(cid));
+      // 后代总数 = 直接子节点数 + 所有子节点的后代数
+      const descendantCount = children.reduce((sum, child) => sum + 1 + (child.descendantCount ?? 0), 0);
 
       if (nodeUserId === currentUser.id) {
         return {
@@ -126,6 +128,7 @@ export class TeamService {
           avatarUrl: currentUser.avatarUrl ?? undefined,
           level: currentUser.level,
           children,
+          descendantCount,
         };
       }
 
@@ -135,6 +138,7 @@ export class TeamService {
         avatarUrl: info?.avatarUrl ?? undefined,
         level: info?.level ?? 'junior',
         children,
+        descendantCount,
       };
     };
 
