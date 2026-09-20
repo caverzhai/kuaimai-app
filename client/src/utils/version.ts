@@ -1,6 +1,6 @@
 // APP 版本配置
-export const APP_VERSION = '2.24.4';
-export const APP_VERSION_CODE = 106;
+export const APP_VERSION = '2.27.0';
+export const APP_VERSION_CODE = 120;
 
 // 版本信息接口地址（部署到后端静态文件）
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
