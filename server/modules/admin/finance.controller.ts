@@ -1,7 +1,8 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 
-import { AuthGuard } from '@server/common/guards/auth.guard';
+import { AuthGuard } from '../../common/guards/auth.guard';
+import { AdminGuard } from '../../common/guards/admin.guard';
 import { AdminService } from './admin.service';
 
 interface FinanceInfo {
@@ -18,7 +19,7 @@ interface FinanceInfo {
 }
 
 @Controller('api/finance')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, AdminGuard)
 export class FinanceController {
   constructor(private readonly adminService: AdminService) {}
 

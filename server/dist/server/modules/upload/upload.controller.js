@@ -19,168 +19,66 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const sharp_1 = require("sharp");
+const MAX_IMAGE_BASE64_SIZE = 5 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 720;
+const IMAGE_QUALITY = 80;
 let UploadController = class UploadController {
-    async debug() {
-        try {
-            const info = {
-                processCwd: process.cwd(),
-                dirname: __dirname,
-                possiblePaths: [],
-                uploadsDirs: [],
-            };
-            const possiblePublicDirs = [
-                path.join(process.cwd(), 'public'),
-                path.join(process.cwd(), 'dist', 'public'),
-                path.join(process.cwd(), 'server', 'public'),
-                path.join(process.cwd(), 'server', 'dist', 'public'),
-                path.join(__dirname, '..', '..', '..', 'public'),
-                path.join(__dirname, '..', '..', '..', '..', 'public'),
-                path.join(__dirname, '..', '..', 'public'),
-            ];
-            for (const dir of possiblePublicDirs) {
-                const exists = fs.existsSync(dir);
-                const uploadsDir = path.join(dir, 'uploads');
-                const uploadsExists = fs.existsSync(uploadsDir);
-                let uploadsFiles = [];
-                if (uploadsExists) {
-                    try {
-                        uploadsFiles = fs.readdirSync(uploadsDir);
-                    }
-                    catch (e) {
-                        uploadsFiles = ['读取失败: ' + e.message];
-                    }
-                }
-                info.possiblePaths.push({
-                    path: dir,
-                    exists,
-                    uploadsDir,
-                    uploadsExists,
-                    uploadsFilesCount: uploadsFiles.length,
-                    uploadsFiles: uploadsFiles.slice(0, 10),
-                });
-            }
-            try {
-                info.cwdFiles = fs.readdirSync(process.cwd());
-            }
-            catch (e) {
-                info.cwdFiles = ['读取失败: ' + e.message];
-            }
-            return { success: true, info };
-        }
-        catch (error) {
-            return { success: false, error: error.message };
-        }
-    }
     async uploadImage(body) {
         try {
-            console.log('[Upload] 收到图片上传请求');
             if (!body.base64) {
-                console.log('[Upload] 失败：图片数据为空');
                 return { success: false, message: '图片数据不能为空' };
+            }
+            if (body.base64.length > MAX_IMAGE_BASE64_SIZE * 1.37) {
+                throw new common_1.PayloadTooLargeException('图片过大，请压缩后再上传（最大5MB）');
             }
             const matches = body.base64.match(/^data:image\/(\w+);base64,(.+)$/);
             if (!matches) {
-                console.log('[Upload] 失败：无效的图片格式');
                 return { success: false, message: '无效的图片格式' };
             }
-            const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+            const ext = 'jpg';
             let imageBuffer = Buffer.from(matches[2], 'base64');
-            console.log(`[Upload] 图片解析成功，格式: ${ext}, 原始大小: ${imageBuffer.length} bytes`);
             try {
                 const metadata = await (0, sharp_1.default)(imageBuffer).metadata();
-                const maxDim = 1280;
-                let needResize = false;
                 let resizeWidth;
                 let resizeHeight;
                 if (metadata.width && metadata.height) {
-                    if (metadata.width > maxDim || metadata.height > maxDim) {
-                        needResize = true;
+                    if (metadata.width > MAX_IMAGE_DIMENSION || metadata.height > MAX_IMAGE_DIMENSION) {
                         if (metadata.width >= metadata.height) {
-                            resizeWidth = maxDim;
+                            resizeWidth = MAX_IMAGE_DIMENSION;
                         }
                         else {
-                            resizeHeight = maxDim;
+                            resizeHeight = MAX_IMAGE_DIMENSION;
                         }
                     }
                 }
-                if (needResize) {
-                    const compressedBuffer = await (0, sharp_1.default)(imageBuffer)
-                        .resize({
-                        width: resizeWidth,
-                        height: resizeHeight,
-                        fit: 'inside',
-                        withoutEnlargement: true,
-                    })
-                        .jpeg({ quality: 80, mozjpeg: true })
-                        .toBuffer();
-                    console.log(`[Upload] 图片压缩完成: ${metadata.width}x${metadata.height} -> 压缩后 ${compressedBuffer.length} bytes (原始 ${imageBuffer.length} bytes)`);
-                    imageBuffer = compressedBuffer;
-                }
-                else {
-                    const compressedBuffer = await (0, sharp_1.default)(imageBuffer)
-                        .jpeg({ quality: 80, mozjpeg: true })
-                        .toBuffer();
-                    if (compressedBuffer.length < imageBuffer.length) {
-                        console.log(`[Upload] 图片质量压缩: ${imageBuffer.length} -> ${compressedBuffer.length} bytes`);
-                        imageBuffer = compressedBuffer;
-                    }
-                }
+                const compressedBuffer = await (0, sharp_1.default)(imageBuffer)
+                    .resize({ width: resizeWidth, height: resizeHeight, fit: 'inside', withoutEnlargement: true })
+                    .jpeg({ quality: IMAGE_QUALITY, mozjpeg: true })
+                    .toBuffer();
+                imageBuffer = compressedBuffer;
             }
-            catch (compressError) {
-                console.warn('[Upload] 图片压缩失败，使用原图:', compressError);
+            catch {
+                try {
+                    imageBuffer = await (0, sharp_1.default)(imageBuffer).jpeg({ quality: IMAGE_QUALITY, mozjpeg: true }).toBuffer();
+                }
+                catch { }
             }
             const randomName = crypto.randomBytes(8).toString('hex');
             const filename = `${Date.now()}_${randomName}.${ext}`;
-            const possiblePublicDirs = [
-                path.join(process.cwd(), 'server', 'public'),
-                path.join(process.cwd(), 'public'),
-                path.join(process.cwd(), 'dist', 'public'),
-                path.join(process.cwd(), 'server', 'dist', 'public'),
-                path.join(__dirname, '..', '..', '..', '..', 'public'),
-                path.join(__dirname, '..', '..', '..', 'public'),
-            ];
-            let publicDir = possiblePublicDirs[0];
-            let selectedIndex = 0;
-            for (let i = 0; i < possiblePublicDirs.length; i++) {
-                if (fs.existsSync(possiblePublicDirs[i])) {
-                    publicDir = possiblePublicDirs[i];
-                    selectedIndex = i;
-                    break;
-                }
-            }
-            if (!fs.existsSync(publicDir)) {
-                fs.mkdirSync(publicDir, { recursive: true });
-                console.log('[Upload] public目录已创建:', publicDir);
-            }
+            const publicDir = this.getPublicDir();
             const uploadDir = path.join(publicDir, 'uploads');
-            console.log(`[Upload] process.cwd(): ${process.cwd()}`);
-            console.log(`[Upload] __dirname: ${__dirname}`);
-            console.log(`[Upload] 选择的public目录索引: ${selectedIndex}`);
-            console.log(`[Upload] 选择的public目录: ${publicDir}`);
-            console.log(`[Upload] 上传目录: ${uploadDir}`);
-            console.log(`[Upload] public目录是否存在: ${fs.existsSync(publicDir)}`);
             if (!fs.existsSync(uploadDir)) {
                 fs.mkdirSync(uploadDir, { recursive: true });
-                console.log('[Upload] 上传目录已创建:', uploadDir);
             }
             const filePath = path.join(uploadDir, filename);
             fs.writeFileSync(filePath, imageBuffer);
-            console.log(`[Upload] 文件已保存: ${filePath}`);
-            const fileExists = fs.existsSync(filePath);
-            const fileSize = fileExists ? fs.statSync(filePath).size : 0;
-            console.log(`[Upload] 文件验证: 存在=${fileExists}, 大小=${fileSize} bytes`);
             const baseUrl = process.env.APP_URL || 'https://backend-production-5d79.up.railway.app';
             const imageUrl = `${baseUrl}/uploads/${filename}`;
-            console.log(`[Upload] 返回URL: ${imageUrl}`);
-            return {
-                success: true,
-                url: imageUrl,
-                filename,
-                size: imageBuffer.length,
-            };
+            return { success: true, url: imageUrl, filename, size: imageBuffer.length };
         }
         catch (error) {
-            console.error('[Upload] 图片上传失败:', error);
+            if (error instanceof common_1.PayloadTooLargeException)
+                throw error;
             return { success: false, message: '图片上传失败: ' + error.message };
         }
     }
@@ -189,60 +87,53 @@ let UploadController = class UploadController {
             if (!body.base64) {
                 return { success: false, message: 'base64 数据不能为空' };
             }
+            if (body.base64.length > 10 * 1024 * 1024 * 1.37) {
+                throw new common_1.PayloadTooLargeException('音频过大（最大10MB）');
+            }
             const matches = body.base64.match(/^data:audio\/(\w+);base64,(.+)$/);
             if (!matches) {
                 return { success: false, message: '无效的音频 base64 格式' };
             }
-            const ext = matches[1] === 'webm' ? 'webm' : matches[1];
+            const ext = matches[1] === 'webm' ? 'webm' : 'mp3';
             const audioBuffer = Buffer.from(matches[2], 'base64');
-            console.log(`[Upload] 音频解析成功，格式: ${ext}, 大小: ${audioBuffer.length} bytes`);
             const randomName = crypto.randomBytes(8).toString('hex');
             const filename = `${Date.now()}_${randomName}.${ext}`;
-            const possiblePublicDirs = [
-                path.join(process.cwd(), 'server', 'public'),
-                path.join(process.cwd(), 'public'),
-                path.join(process.cwd(), 'dist', 'public'),
-                path.join(process.cwd(), 'server', 'dist', 'public'),
-            ];
-            let publicDir = possiblePublicDirs[0];
-            for (let i = 0; i < possiblePublicDirs.length; i++) {
-                if (fs.existsSync(possiblePublicDirs[i])) {
-                    publicDir = possiblePublicDirs[i];
-                    break;
-                }
-            }
-            if (!fs.existsSync(publicDir)) {
-                fs.mkdirSync(publicDir, { recursive: true });
-            }
+            const publicDir = this.getPublicDir();
             const uploadDir = path.join(publicDir, 'uploads');
             if (!fs.existsSync(uploadDir)) {
                 fs.mkdirSync(uploadDir, { recursive: true });
             }
             const filePath = path.join(uploadDir, filename);
             fs.writeFileSync(filePath, audioBuffer);
-            console.log(`[Upload] 音频文件已保存: ${filePath}`);
             const baseUrl = process.env.APP_URL || 'https://backend-production-5d79.up.railway.app';
             const audioUrl = `${baseUrl}/uploads/${filename}`;
-            return {
-                success: true,
-                url: audioUrl,
-                filename,
-                size: audioBuffer.length,
-            };
+            return { success: true, url: audioUrl, filename, size: audioBuffer.length };
         }
         catch (error) {
-            console.error('[Upload] 音频上传失败:', error);
+            if (error instanceof common_1.PayloadTooLargeException)
+                throw error;
             return { success: false, message: '音频上传失败: ' + error.message };
         }
     }
+    getPublicDir() {
+        const possiblePublicDirs = [
+            path.join(process.cwd(), 'server', 'public'),
+            path.join(process.cwd(), 'public'),
+            path.join(process.cwd(), 'dist', 'public'),
+            path.join(process.cwd(), 'server', 'dist', 'public'),
+            path.join(__dirname, '..', '..', '..', '..', 'public'),
+            path.join(__dirname, '..', '..', '..', 'public'),
+        ];
+        for (const dir of possiblePublicDirs) {
+            if (fs.existsSync(dir))
+                return dir;
+        }
+        const firstDir = possiblePublicDirs[0];
+        fs.mkdirSync(firstDir, { recursive: true });
+        return firstDir;
+    }
 };
 exports.UploadController = UploadController;
-__decorate([
-    (0, common_1.Get)('debug'),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
-    __metadata("design:returntype", Promise)
-], UploadController.prototype, "debug", null);
 __decorate([
     (0, common_1.Post)('image'),
     (0, common_1.UseGuards)(auth_guard_1.AuthGuard),

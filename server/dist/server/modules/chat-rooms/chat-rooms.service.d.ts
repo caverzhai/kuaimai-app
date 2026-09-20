@@ -40,6 +40,8 @@ export declare class ChatRoomsService {
         description: string;
         type: string;
         maxMicCount: number;
+        isActive: boolean;
+        scheduledEndTime: string;
         myRole: string;
         isMuted: boolean;
         micSlots: {
@@ -48,6 +50,19 @@ export declare class ChatRoomsService {
             nickname: string;
             avatarUrl: string;
         }[];
+    }>;
+    getRoomMembers(roomId: string, userId: string): Promise<{
+        items: {
+            userId: string;
+            nickname: string;
+            avatarUrl: string;
+            level: string;
+            role: string;
+            isMuted: boolean;
+            isOnMic: boolean;
+            joinedAt: string;
+        }[];
+        total: number;
     }>;
     muteUser(roomId: string, operatorId: string, targetUserId: string, muted: boolean): Promise<{
         success: boolean;
@@ -85,7 +100,7 @@ export declare class ChatRoomsService {
     assignHost(roomId: string, operatorId: string, targetUserId: string, slotIndex: number): Promise<{
         success: boolean;
     }>;
-    closeRoom(roomId: string, operatorPhone: string): Promise<{
+    closeRoom(roomId: string, operatorPhone: string, operatorUserId: string): Promise<{
         success: boolean;
     }>;
     activateScheduledRooms(): Promise<{
@@ -168,6 +183,10 @@ export declare class ChatRoomsService {
         message: string;
     }>;
     rejectApplication(operatorId: string, applicationId: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
+    deleteApplication(applicationId: string, userId: string, userPhone: string): Promise<{
         success: boolean;
         message: string;
     }>;

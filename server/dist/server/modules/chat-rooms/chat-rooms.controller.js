@@ -40,6 +40,9 @@ let ChatRoomsController = class ChatRoomsController {
     async rejectApplication(id, req) {
         return this.chatRoomsService.rejectApplication(req.user.userId, id);
     }
+    async deleteApplication(id, req) {
+        return this.chatRoomsService.deleteApplication(id, req.user.userId, req.user.phone);
+    }
     async getAllRoomsForAdmin(req) {
         if (req.user.phone !== '13800000000') {
             throw new common_1.ForbiddenException('仅管理员可访问');
@@ -54,6 +57,9 @@ let ChatRoomsController = class ChatRoomsController {
     }
     async getRoomDetail(id, req) {
         return this.chatRoomsService.getRoomDetail(id, req.user.userId);
+    }
+    async getRoomMembers(id, req) {
+        return this.chatRoomsService.getRoomMembers(id, req.user.userId);
     }
     async muteUser(id, req, body) {
         return this.chatRoomsService.muteUser(id, req.user.userId, body.userId, body.muted);
@@ -84,7 +90,7 @@ let ChatRoomsController = class ChatRoomsController {
         return this.chatRoomsService.assignHost(id, req.user.userId, body.userId, body.slotIndex);
     }
     async closeRoom(id, req) {
-        return this.chatRoomsService.closeRoom(id, req.user.phone);
+        return this.chatRoomsService.closeRoom(id, req.user.phone, req.user.userId);
     }
     async getBlockedWords() {
         return this.chatRoomsService.getBlockedWords();
@@ -145,6 +151,14 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], ChatRoomsController.prototype, "rejectApplication", null);
 __decorate([
+    (0, common_1.Delete)('applications/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], ChatRoomsController.prototype, "deleteApplication", null);
+__decorate([
     (0, common_1.Get)('admin/all'),
     __param(0, (0, common_1.Req)()),
     __metadata("design:type", Function),
@@ -167,6 +181,14 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], ChatRoomsController.prototype, "getRoomDetail", null);
+__decorate([
+    (0, common_1.Get)(':id/members'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], ChatRoomsController.prototype, "getRoomMembers", null);
 __decorate([
     (0, common_1.Post)(':id/mute'),
     __param(0, (0, common_1.Param)('id')),

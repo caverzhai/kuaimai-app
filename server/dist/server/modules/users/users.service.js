@@ -60,7 +60,7 @@ let UsersService = UsersService_1 = class UsersService {
             }
             inviter = inviterRows[0];
         }
-        const hashedPassword = (0, auth_util_1.hashPassword)(dto.password);
+        const hashedPassword = await (0, auth_util_1.hashPassword)(dto.password);
         const inviteCode = (0, auth_util_1.generateInviteCode)(8);
         const result = await this.db.transaction(async (tx) => {
             const [newUser] = await tx
@@ -147,7 +147,16 @@ let UsersService = UsersService_1 = class UsersService {
             throw new common_2.UnauthorizedException('手机号或密码错误');
         }
         const user = userRows[0];
-        if (!(0, auth_util_1.verifyPassword)(dto.password, user.password)) {
+        let passwordValid = await (0, auth_util_1.verifyPassword)(dto.password, user.password);
+        if (!passwordValid && (0, auth_util_1.verifyLegacyPassword)(dto.password, user.password)) {
+            passwordValid = true;
+            try {
+                const newHash = await (0, auth_util_1.hashPassword)(dto.password);
+                await this.db.update(schema_1.users).set({ password: newHash }).where((0, drizzle_orm_1.eq)(schema_1.users.id, user.id));
+            }
+            catch { }
+        }
+        if (!passwordValid) {
             throw new common_2.UnauthorizedException('手机号或密码错误');
         }
         const token = this.makeToken(user);

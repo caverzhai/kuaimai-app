@@ -77,11 +77,32 @@ async function bootstrap() {
         abortOnError: process.env.NODE_ENV !== 'development',
         bodyParser: false,
     });
-    app.use(bodyParser.json({ limit: '50mb' }));
+    app.use(bodyParser.json({ limit: '2mb' }));
+    const allowedOrigins = [
+        'capacitor://localhost',
+        'http://localhost',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'https://backend-production-5d79.up.railway.app',
+    ];
+    if (process.env.CORS_ORIGINS) {
+        allowedOrigins.push(...process.env.CORS_ORIGINS.split(',').map(s => s.trim()));
+    }
     app.enableCors({
-        origin: true,
-        allowedHeaders: '*',
-        exposedHeaders: '*',
+        origin: (origin, callback) => {
+            if (!origin)
+                return callback(null, true);
+            if (allowedOrigins.includes(origin) || origin.startsWith('http://192.168.') || origin.startsWith('http://10.')) {
+                return callback(null, true);
+            }
+            if (process.env.NODE_ENV === 'development') {
+                return callback(null, true);
+            }
+            return callback(new Error('不允许的跨域来源'), false);
+        },
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+        exposedHeaders: ['Content-Disposition'],
+        credentials: true,
         preflightContinue: false,
         optionsSuccessStatus: 204,
     });

@@ -15,6 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FinanceController = void 0;
 const common_1 = require("@nestjs/common");
 const auth_guard_1 = require("../../common/guards/auth.guard");
+const admin_guard_1 = require("../../common/guards/admin.guard");
 const admin_service_1 = require("./admin.service");
 let FinanceController = class FinanceController {
     adminService;
@@ -36,7 +37,7 @@ __decorate([
 ], FinanceController.prototype, "getFinanceInfo", null);
 exports.FinanceController = FinanceController = __decorate([
     (0, common_1.Controller)('api/finance'),
-    (0, common_1.UseGuards)(auth_guard_1.AuthGuard),
+    (0, common_1.UseGuards)(auth_guard_1.AuthGuard, admin_guard_1.AdminGuard),
     __metadata("design:paramtypes", [admin_service_1.AdminService])
 ], FinanceController);
 //# sourceMappingURL=finance.controller.js.map

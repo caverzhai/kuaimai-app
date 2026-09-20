@@ -93,14 +93,37 @@ async function bootstrap() {
     bodyParser: false, // 鍏抽棴榛樿鐨?body-parser锛屾墜鍔ㄩ厤缃洿澶х殑闄愬埗
   });
 
-  // 手动配置 body-parser，限制为 50MB（支持大图 base64 上传）
-  app.use(bodyParser.json({ limit: '50mb' }));
+  // 手动配置 body-parser，限制为 2MB（大文件上传走单独的上传接口）
+  app.use(bodyParser.json({ limit: '2mb' }));
 
-  // 启用 CORS（允许所有来源，包括 Android WebView 的 capacitor://localhost 和 http://localhost）
+  // 启用 CORS（白名单域名，生产环境收紧）
+  const allowedOrigins = [
+    'capacitor://localhost', // Capacitor Android
+    'http://localhost',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://backend-production-5d79.up.railway.app',
+  ];
+  // 从环境变量读取额外允许的域名（逗号分隔）
+  if (process.env.CORS_ORIGINS) {
+    allowedOrigins.push(...process.env.CORS_ORIGINS.split(',').map(s => s.trim()));
+  }
   app.enableCors({
-    origin: true, // 动态允许所有来源
-    allowedHeaders: '*',
-    exposedHeaders: '*',
+    origin: (origin, callback) => {
+      // 允许无 origin 的请求（如移动端原生请求、curl）
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin) || origin.startsWith('http://192.168.') || origin.startsWith('http://10.')) {
+        return callback(null, true);
+      }
+      // 开发环境允许所有
+      if (process.env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+      return callback(new Error('不允许的跨域来源'), false);
+    },
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Disposition'],
+    credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204,
   });

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
+import { verifyToken } from '../utils/auth.util';
 
 export interface AuthUser {
   userId: string;
@@ -36,22 +37,18 @@ export class AuthGuard implements CanActivate {
     }
 
     const token = authHeader.slice(7);
-    try {
-      const decoded = JSON.parse(
-        Buffer.from(token.split('.')[1], 'base64').toString('utf-8'),
-      );
-      if (!decoded.userId) {
-        throw new UnauthorizedException('Token无效');
-      }
-      request.user = {
-        userId: decoded.userId,
-        phone: decoded.phone,
-        level: decoded.level,
-        isInvited: decoded.isInvited,
-      };
-      return true;
-    } catch {
-      throw new UnauthorizedException('Token无效');
+    const decoded = verifyToken(token);
+
+    if (!decoded || !decoded.userId) {
+      throw new UnauthorizedException('Token无效或已过期');
     }
+
+    request.user = {
+      userId: decoded.userId,
+      phone: decoded.phone,
+      level: decoded.level,
+      isInvited: decoded.isInvited,
+    };
+    return true;
   }
 }

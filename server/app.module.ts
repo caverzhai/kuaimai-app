@@ -1,5 +1,6 @@
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { Module } from '@nestjs/common';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 import { DatabaseModule } from './database/database.module';
 import { GlobalExceptionFilter } from './common/filters/exception.filter';
@@ -19,6 +20,13 @@ import { OcrModule } from './modules/ocr/ocr.module';
 
 @Module({
   imports: [
+    // 全局频率限制：每分钟最多60次请求（登录/注册等敏感接口有更严格的单独限制）
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 60秒
+        limit: 60,   // 最多60次
+      },
+    ]),
     DatabaseModule,
     UsersModule,
     ProductsModule,
@@ -38,6 +46,10 @@ import { OcrModule } from './modules/ocr/ocr.module';
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })

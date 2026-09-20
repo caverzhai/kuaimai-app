@@ -14,6 +14,8 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthController = void 0;
 const common_1 = require("@nestjs/common");
+const throttler_1 = require("@nestjs/throttler");
+const throttler_2 = require("@nestjs/throttler");
 const users_service_1 = require("./users.service");
 let AuthController = class AuthController {
     usersService;
@@ -30,6 +32,7 @@ let AuthController = class AuthController {
 exports.AuthController = AuthController;
 __decorate([
     (0, common_1.Post)('register'),
+    (0, throttler_2.Throttle)({ default: { limit: 5, ttl: 60000 } }),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -37,6 +40,7 @@ __decorate([
 ], AuthController.prototype, "register", null);
 __decorate([
     (0, common_1.Post)('login'),
+    (0, throttler_2.Throttle)({ default: { limit: 10, ttl: 60000 } }),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
@@ -44,6 +48,7 @@ __decorate([
 ], AuthController.prototype, "login", null);
 exports.AuthController = AuthController = __decorate([
     (0, common_1.Controller)('api/auth'),
+    (0, common_1.UseGuards)(throttler_1.ThrottlerGuard),
     __metadata("design:paramtypes", [users_service_1.UsersService])
 ], AuthController);
 //# sourceMappingURL=auth.controller.js.map

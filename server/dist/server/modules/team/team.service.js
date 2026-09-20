@@ -92,6 +92,7 @@ let TeamService = TeamService_1 = class TeamService {
             const info = userInfoMap.get(nodeUserId);
             const childIds = childrenByParent.get(nodeUserId) ?? [];
             const children = childIds.map((cid) => buildTree(cid));
+            const descendantCount = children.reduce((sum, child) => sum + 1 + (child.descendantCount ?? 0), 0);
             if (nodeUserId === currentUser.id) {
                 return {
                     userId: currentUser.id,
@@ -99,6 +100,7 @@ let TeamService = TeamService_1 = class TeamService {
                     avatarUrl: currentUser.avatarUrl ?? undefined,
                     level: currentUser.level,
                     children,
+                    descendantCount,
                 };
             }
             return {
@@ -107,6 +109,7 @@ let TeamService = TeamService_1 = class TeamService {
                 avatarUrl: info?.avatarUrl ?? undefined,
                 level: info?.level ?? 'junior',
                 children,
+                descendantCount,
             };
         };
         const tree = buildTree(currentUser.id);

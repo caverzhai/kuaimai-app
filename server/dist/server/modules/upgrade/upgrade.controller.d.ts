@@ -6,7 +6,7 @@ export declare class UpgradeController {
     constructor(upgradeService: UpgradeService);
     getUpgradeCenter(req: Request): Promise<UpgradeCenterInfo>;
     startTask(taskId: string, req: Request): Promise<UpgradeTaskInfo>;
-    resetTasks(req: Request): Promise<{
+    resetTasks(userId: string): Promise<{
         success: boolean;
         message: string;
     }>;

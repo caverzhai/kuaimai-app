@@ -175,6 +175,8 @@ let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
             description: room.description,
             type: room.type,
             maxMicCount: room.maxMicCount,
+            isActive: room.isActive,
+            scheduledEndTime: room.scheduledEndTime ? room.scheduledEndTime.toISOString() : null,
             myRole: member.role,
             isMuted: member.isMuted,
             micSlots: mics.map((mic) => ({
@@ -183,6 +185,50 @@ let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
                 nickname: micUserMap.get(mic.userId)?.nickname || '未知',
                 avatarUrl: micUserMap.get(mic.userId)?.avatarUrl,
             })),
+        };
+    }
+    async getRoomMembers(roomId, userId) {
+        const roomRows = await this.db.select().from(schema_1.chatRooms).where((0, drizzle_orm_1.eq)(schema_1.chatRooms.id, roomId)).limit(1);
+        if (roomRows.length === 0)
+            throw new common_1.NotFoundException('聊天室不存在');
+        const myMember = await this.db.select().from(schema_1.chatRoomMembers)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.roomId, roomId), (0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.userId, userId)))
+            .limit(1);
+        if (myMember.length === 0) {
+            throw new common_1.ForbiddenException('你不是该聊天室成员');
+        }
+        const members = await this.db.select().from(schema_1.chatRoomMembers)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.roomId, roomId), (0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.isBlocked, false)))
+            .orderBy((0, drizzle_orm_1.desc)(schema_1.chatRoomMembers.joinedAt));
+        const memberUserIds = members.map((m) => m.userId);
+        const memberUsers = memberUserIds.length > 0
+            ? await this.db.select({
+                id: schema_1.users.id,
+                nickname: schema_1.users.nickname,
+                avatarUrl: schema_1.users.avatarUrl,
+                level: schema_1.users.level,
+            }).from(schema_1.users).where((0, drizzle_orm_1.inArray)(schema_1.users.id, memberUserIds))
+            : [];
+        const userMap = new Map(memberUsers.map((u) => [u.id, u]));
+        const mics = await this.db.select().from(schema_1.chatMicSlots)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatMicSlots.roomId, roomId), (0, drizzle_orm_1.eq)(schema_1.chatMicSlots.isActive, true)));
+        const micUserIds = new Set(mics.map((m) => m.userId));
+        const items = members.map((member) => {
+            const user = userMap.get(member.userId);
+            return {
+                userId: member.userId,
+                nickname: user?.nickname || '未知用户',
+                avatarUrl: user?.avatarUrl,
+                level: user?.level,
+                role: member.role,
+                isMuted: member.isMuted,
+                isOnMic: micUserIds.has(member.userId),
+                joinedAt: member.joinedAt.toISOString(),
+            };
+        });
+        return {
+            items,
+            total: items.length,
         };
     }
     async muteUser(roomId, operatorId, targetUserId, muted) {
@@ -327,12 +373,18 @@ let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
         await this.db.insert(schema_1.chatMicSlots).values({ roomId, userId: targetUserId, slotIndex });
         return { success: true };
     }
-    async closeRoom(roomId, operatorPhone) {
-        if (!ADMIN_PHONES.includes(operatorPhone)) {
-            throw new common_1.ForbiddenException('只有管理员可以关闭聊天室');
+    async closeRoom(roomId, operatorPhone, operatorUserId) {
+        const room = await this.db.select().from(schema_1.chatRooms).where((0, drizzle_orm_1.eq)(schema_1.chatRooms.id, roomId)).limit(1);
+        if (room.length === 0) {
+            throw new common_1.NotFoundException('聊天室不存在');
+        }
+        const isAdmin = ADMIN_PHONES.includes(operatorPhone);
+        const isCreator = room[0].createdBy === operatorUserId;
+        if (!isAdmin && !isCreator) {
+            throw new common_1.ForbiddenException('只有管理员或聊天室创建者可以关闭聊天室');
         }
         await this.db.update(schema_1.chatRooms).set({ isActive: false }).where((0, drizzle_orm_1.eq)(schema_1.chatRooms.id, roomId));
-        this.logger.log(`关闭聊天室: roomId=${roomId}`);
+        this.logger.log(`关闭聊天室: roomId=${roomId}, operator=${operatorPhone}, isAdmin=${isAdmin}, isCreator=${isCreator}`);
         return { success: true };
     }
     async activateScheduledRooms() {
@@ -583,6 +635,18 @@ let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
             .where((0, drizzle_orm_1.eq)(schema_1.chatRoomApplications.id, applicationId));
         this.logger.log(`拒绝聊天室申请: applicationId=${applicationId}, roomName=${appRows[0].roomName}`);
         return { success: true, message: '已拒绝申请' };
+    }
+    async deleteApplication(applicationId, userId, userPhone) {
+        const isAdmin = ADMIN_PHONES.includes(userPhone);
+        const appRows = await this.db.select().from(schema_1.chatRoomApplications).where((0, drizzle_orm_1.eq)(schema_1.chatRoomApplications.id, applicationId)).limit(1);
+        if (appRows.length === 0)
+            throw new common_1.NotFoundException('申请不存在');
+        if (!isAdmin && appRows[0].userId !== userId) {
+            throw new common_1.ForbiddenException('只能删除自己的申请记录');
+        }
+        await this.db.delete(schema_1.chatRoomApplications).where((0, drizzle_orm_1.eq)(schema_1.chatRoomApplications.id, applicationId));
+        this.logger.log(`删除聊天室申请: applicationId=${applicationId}, roomName=${appRows[0].roomName}, by=${userPhone}`);
+        return { success: true, message: '申请记录已删除' };
     }
 };
 exports.ChatRoomsService = ChatRoomsService;

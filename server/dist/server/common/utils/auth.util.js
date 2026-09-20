@@ -1,28 +1,50 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateToken = generateToken;
+exports.verifyToken = verifyToken;
 exports.hashPassword = hashPassword;
 exports.verifyPassword = verifyPassword;
+exports.verifyLegacyPassword = verifyLegacyPassword;
 exports.generateOrderNo = generateOrderNo;
 exports.generateInviteCode = generateInviteCode;
-const crypto = require("crypto");
-function generateToken(payload) {
-    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    const signature = crypto
-        .createHmac('sha256', process.env.JWT_SECRET || 'kuaimai-secret-key')
-        .update(`${header}.${body}`)
-        .digest('base64url');
-    return `${header}.${body}.${signature}`;
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const JWT_SECRET = process.env.JWT_SECRET;
+const BCRYPT_SALT_ROUNDS = 12;
+if (!JWT_SECRET) {
+    console.error('❌ JWT_SECRET 环境变量未设置！使用临时密钥仅用于开发环境。');
 }
-function hashPassword(password) {
-    return crypto
+const ACTIVE_SECRET = JWT_SECRET || 'dev-only-insecure-secret-change-in-production';
+function generateToken(payload) {
+    return jwt.sign(payload, ACTIVE_SECRET, { expiresIn: '30d' });
+}
+function verifyToken(token) {
+    try {
+        const decoded = jwt.verify(token, ACTIVE_SECRET);
+        return decoded;
+    }
+    catch {
+        return null;
+    }
+}
+async function hashPassword(password) {
+    return bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+}
+async function verifyPassword(password, hash) {
+    try {
+        return await bcrypt.compare(password, hash);
+    }
+    catch {
+        return false;
+    }
+}
+function verifyLegacyPassword(password, hash) {
+    const crypto = require('crypto');
+    const legacyHash = crypto
         .createHash('sha256')
         .update(password + (process.env.PASSWORD_SALT || 'kuaimai-salt'))
         .digest('hex');
-}
-function verifyPassword(password, hash) {
-    return hashPassword(password) === hash;
+    return legacyHash === hash;
 }
 function generateOrderNo(prefix) {
     const now = new Date();

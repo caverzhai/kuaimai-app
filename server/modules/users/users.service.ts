@@ -18,6 +18,7 @@ import {
   generateToken,
   hashPassword,
   verifyPassword,
+  verifyLegacyPassword,
 } from '@server/common/utils/auth.util';
 import {
   BadRequestException,
@@ -81,7 +82,7 @@ export class UsersService {
       inviter = inviterRows[0];
     }
 
-    const hashedPassword = hashPassword(dto.password);
+    const hashedPassword = await hashPassword(dto.password);
     const inviteCode = generateInviteCode(8);
 
     // 3. 事务：创建用户 + 团队关系 + 更新计数
@@ -201,7 +202,18 @@ export class UsersService {
     }
 
     const user = userRows[0];
-    if (!verifyPassword(dto.password, user.password)) {
+    // 先尝试 bcrypt 验证
+    let passwordValid = await verifyPassword(dto.password, user.password);
+    // 如果失败，尝试旧的 SHA256 验证（兼容旧用户）
+    if (!passwordValid && verifyLegacyPassword(dto.password, user.password)) {
+      passwordValid = true;
+      // 验证成功后自动升级为 bcrypt 哈希
+      try {
+        const newHash = await hashPassword(dto.password);
+        await this.db.update(users).set({ password: newHash }).where(eq(users.id, user.id));
+      } catch {}
+    }
+    if (!passwordValid) {
       throw new UnauthorizedException('手机号或密码错误');
     }
 

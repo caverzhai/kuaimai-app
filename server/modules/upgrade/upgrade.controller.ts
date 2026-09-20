@@ -14,6 +14,7 @@ import type {
   UpgradeTaskInfo,
 } from '@shared/api.interface';
 import { AuthGuard } from '@server/common/guards/auth.guard';
+import { AdminGuard } from '@server/common/guards/admin.guard';
 import { UpgradeService } from './upgrade.service';
 
 @Controller('api/upgrade')
@@ -37,11 +38,10 @@ export class UpgradeController {
     return this.upgradeService.startTask(taskId, userId);
   }
 
-  // 临时修复接口：删除当前用户的所有升级任务，让系统重新生成
-  @Delete('tasks/reset')
-  @UseGuards(AuthGuard)
-  async resetTasks(@Req() req: Request): Promise<{ success: boolean; message: string }> {
-    const userId: string = req.user!.userId;
+  // 管理员接口：重置指定用户的所有升级任务
+  @Delete('tasks/reset/:userId')
+  @UseGuards(AuthGuard, AdminGuard)
+  async resetTasks(@Param('userId') userId: string): Promise<{ success: boolean; message: string }> {
     return this.upgradeService.resetUserTasks(userId);
   }
 }

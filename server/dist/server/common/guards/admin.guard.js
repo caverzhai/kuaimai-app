@@ -9,38 +9,33 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AuthGuard = void 0;
+exports.AdminGuard = void 0;
 const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
-const auth_util_1 = require("../utils/auth.util");
-let AuthGuard = class AuthGuard {
+const ADMIN_PHONES = (process.env.ADMIN_PHONES || '13800000000')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+let AdminGuard = class AdminGuard {
     reflector;
     constructor(reflector) {
         this.reflector = reflector;
     }
     canActivate(context) {
         const request = context.switchToHttp().getRequest();
-        const authHeader = request.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            throw new common_1.UnauthorizedException('未登录');
+        const user = request.user;
+        if (!user) {
+            throw new common_1.ForbiddenException('未登录');
         }
-        const token = authHeader.slice(7);
-        const decoded = (0, auth_util_1.verifyToken)(token);
-        if (!decoded || !decoded.userId) {
-            throw new common_1.UnauthorizedException('Token无效或已过期');
+        if (!ADMIN_PHONES.includes(user.phone)) {
+            throw new common_1.ForbiddenException('需要管理员权限');
         }
-        request.user = {
-            userId: decoded.userId,
-            phone: decoded.phone,
-            level: decoded.level,
-            isInvited: decoded.isInvited,
-        };
         return true;
     }
 };
-exports.AuthGuard = AuthGuard;
-exports.AuthGuard = AuthGuard = __decorate([
+exports.AdminGuard = AdminGuard;
+exports.AdminGuard = AdminGuard = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [core_1.Reflector])
-], AuthGuard);
-//# sourceMappingURL=auth.guard.js.map
+], AdminGuard);
+//# sourceMappingURL=admin.guard.js.map

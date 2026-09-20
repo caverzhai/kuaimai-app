@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppModule = void 0;
 const core_1 = require("@nestjs/core");
 const common_1 = require("@nestjs/common");
+const throttler_1 = require("@nestjs/throttler");
 const database_module_1 = require("./database/database.module");
 const exception_filter_1 = require("./common/filters/exception.filter");
 const users_module_1 = require("./modules/users/users.module");
@@ -30,6 +31,12 @@ exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
         imports: [
+            throttler_1.ThrottlerModule.forRoot([
+                {
+                    ttl: 60000,
+                    limit: 60,
+                },
+            ]),
             database_module_1.DatabaseModule,
             users_module_1.UsersModule,
             products_module_1.ProductsModule,
@@ -49,6 +56,10 @@ exports.AppModule = AppModule = __decorate([
             {
                 provide: core_1.APP_FILTER,
                 useClass: exception_filter_1.GlobalExceptionFilter,
+            },
+            {
+                provide: core_1.APP_GUARD,
+                useClass: throttler_1.ThrottlerGuard,
             },
         ],
     })

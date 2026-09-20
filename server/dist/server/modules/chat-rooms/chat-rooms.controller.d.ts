@@ -69,6 +69,10 @@ export declare class ChatRoomsController {
         success: boolean;
         message: string;
     }>;
+    deleteApplication(id: string, req: Request): Promise<{
+        success: boolean;
+        message: string;
+    }>;
     getAllRoomsForAdmin(req: Request): Promise<{
         items: {
             creatorNickname: string;
@@ -94,6 +98,8 @@ export declare class ChatRoomsController {
         description: string;
         type: string;
         maxMicCount: number;
+        isActive: boolean;
+        scheduledEndTime: string;
         myRole: string;
         isMuted: boolean;
         micSlots: {
@@ -102,6 +108,19 @@ export declare class ChatRoomsController {
             nickname: string;
             avatarUrl: string;
         }[];
+    }>;
+    getRoomMembers(id: string, req: Request): Promise<{
+        items: {
+            userId: string;
+            nickname: string;
+            avatarUrl: string;
+            level: string;
+            role: string;
+            isMuted: boolean;
+            isOnMic: boolean;
+            joinedAt: string;
+        }[];
+        total: number;
     }>;
     muteUser(id: string, req: Request, body: {
         userId: string;

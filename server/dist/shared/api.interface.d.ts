@@ -213,6 +213,7 @@ export interface TeamTreeNode {
     avatarUrl?: string;
     level: string;
     children: TeamTreeNode[];
+    descendantCount?: number;
 }
 export interface TeamInfo {
     tree: TeamTreeNode;
