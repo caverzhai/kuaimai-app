@@ -1,7 +1,7 @@
 {
-    "releaseNotes":  "1. 聊天室新增用户列表功能，前三排展示，超过可折叠查看全部\n2. 优化APP本地加载，重启后立即显示缓存数据，加载速度大幅提升\n3. 修复已知问题，提升稳定性",
-    "downloadUrl":  "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-    "versionCode":  107,
-    "version":  "2.25.0",
-    "forceUpdate":  true
+  "version": "2.26.0",
+  "versionCode": 119,
+  "forceUpdate": true,
+  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
+  "releaseNotes": "1. 聊天室新增用户列表功能，前三排展示，超过可折叠查看全部\n2. 优化APP本地加载，重启后立即显示缓存数据，加载速度大幅提升\n3. 修复已知问题，提升稳定性"
 }
