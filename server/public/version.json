@@ -1,6 +1,6 @@
 {
   "version": "2.28.3",
-  "versionCode": 124,
+  "versionCode": 126,
   "forceUpdate": true,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
   "releaseNotes": "1.软件名改为AI快卖 2.修复页面刷新后API 401未登录 3.版本号前加WebShark Tech技术服务字样"
