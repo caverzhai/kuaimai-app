@@ -186,6 +186,7 @@ export class ProductsService {
         detailImages: dto.detailImages as unknown as string[],
         status: dto.status ?? 'on_sale',
         sortOrder: dto.sortOrder ?? 0,
+        sellerId: (dto as any).sellerId ?? null,
       })
       .returning();
 
@@ -201,6 +202,7 @@ export class ProductsService {
       detailImages: p.detailImages as { url: string }[],
       status: p.status,
       sortOrder: p.sortOrder,
+      sellerId: (p as any).sellerId ?? undefined,
       createdAt: p.createdAt.toISOString(),
     };
   }
@@ -221,6 +223,7 @@ export class ProductsService {
     }
     if (dto.status !== undefined) patch.status = dto.status;
     if (dto.sortOrder !== undefined) patch.sortOrder = dto.sortOrder;
+    if ((dto as any).sellerId !== undefined) (patch as any).sellerId = (dto as any).sellerId;
 
     if (Object.keys(patch).length === 0) {
       return this.getProductDetail(id);

@@ -151,6 +151,7 @@ let ProductsService = ProductsService_1 = class ProductsService {
             detailImages: dto.detailImages,
             status: dto.status ?? 'on_sale',
             sortOrder: dto.sortOrder ?? 0,
+            sellerId: dto.sellerId ?? null,
         })
             .returning();
         const p = inserted[0];
@@ -165,6 +166,7 @@ let ProductsService = ProductsService_1 = class ProductsService {
             detailImages: p.detailImages,
             status: p.status,
             sortOrder: p.sortOrder,
+            sellerId: p.sellerId ?? undefined,
             createdAt: p.createdAt.toISOString(),
         };
     }
@@ -190,6 +192,8 @@ let ProductsService = ProductsService_1 = class ProductsService {
             patch.status = dto.status;
         if (dto.sortOrder !== undefined)
             patch.sortOrder = dto.sortOrder;
+        if (dto.sellerId !== undefined)
+            patch.sellerId = dto.sellerId;
         if (Object.keys(patch).length === 0) {
             return this.getProductDetail(id);
         }

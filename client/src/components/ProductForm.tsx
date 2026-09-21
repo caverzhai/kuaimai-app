@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
-import { createAdminProduct, updateAdminProduct } from '@client/src/api';
+import { createAdminProduct, updateAdminProduct, getAdminSellers } from '@client/src/api';
 import { toast } from 'sonner';
 import { Plus, X, Image as ImageIcon, Upload } from 'lucide-react';
 import type { ProductInfo } from '@shared/api.interface';
@@ -32,6 +32,17 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
   );
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [sellers, setSellers] = useState<any[]>([]);
+  const [sellerId, setSellerId] = useState((product as any)?.sellerId || '');
+
+  // 加载卖家列表
+  useEffect(() => {
+    getAdminSellers().then((res: any) => {
+      setSellers(res.sellers || []);
+    }).catch(() => {});
+  }, []);
+
+  const PRICE_OPTIONS = [200, 400, 800, 1600, 3200, 6400];
 
   const CATEGORIES = [
     { value: 'service', label: '服务类' },
@@ -192,8 +203,8 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
       toast(`产品名称最多${MAX_NAME_LENGTH}个汉字`);
       return;
     }
-    if (!price || isNaN(Number(price)) || Number(price) <= 0) {
-      toast('请输入有效的产品价格');
+    if (!price || !PRICE_OPTIONS.includes(Number(price))) {
+      toast('请选择有效的产品价格');
       return;
     }
 
@@ -230,6 +241,7 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
         mainImages: uploadedMainImages,
         detailImages: uploadedDetailImages,
         status: 'on_sale',
+        sellerId: sellerId || null,
       };
 
       if (isEdit && product) {
@@ -359,16 +371,34 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               产品价格（元）<span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
+            <select
               value={price}
               onChange={(e) => setPrice(e.target.value)}
-              placeholder="0.00"
-              min="0"
-              step="0.01"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none"
-            />
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none bg-white"
+            >
+              <option value="">请选择价格</option>
+              {PRICE_OPTIONS.map((p) => (
+                <option key={p} value={p}>{p}元</option>
+              ))}
+            </select>
           </div>
+        </div>
+
+        {/* 卖家选择 */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            所属卖家 <span className="text-xs text-gray-400 ml-2">（选择后用户付款将使用该卖家的收款码）</span>
+          </label>
+          <select
+            value={sellerId}
+            onChange={(e) => setSellerId(e.target.value)}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none bg-white"
+          >
+            <option value="">平台自营（管理员收款）</option>
+            {sellers.map((s) => (
+              <option key={s.id} value={s.id}>{s.nickname || s.phone}（{s.phone}）</option>
+            ))}
+          </select>
         </div>
 
         {/* 产品图文说明 */}

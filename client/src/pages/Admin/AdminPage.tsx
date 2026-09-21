@@ -106,11 +106,14 @@ const AdminPage = () => {
   useEffect(() => {
     loadTabData(activeTab);
     // 每30秒自动刷新当前tab数据（审核后台实时更新）
+    // 编辑商品时暂停自动刷新，避免表单内容丢失
     const interval = setInterval(() => {
-      loadTabData(activeTab);
+      if (!showProductForm) {
+        loadTabData(activeTab);
+      }
     }, 30000);
     return () => clearInterval(interval);
-  }, [activeTab]);
+  }, [activeTab, showProductForm]);
 
   async function loadTabData(tab: TabType) {
     setLoading(true);
