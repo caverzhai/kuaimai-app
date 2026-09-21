@@ -192,7 +192,10 @@ async function bootstrap() {
       ) {
         return next();
       }
-      // 返回前端 index.html
+      // 返回前端 index.html（禁止缓存，确保每次都加载最新版本）
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(appIndexPath);
     });
     logger.log('SPA fallback 已启用');
