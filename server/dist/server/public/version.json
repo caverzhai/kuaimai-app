@@ -1,7 +1,0 @@
-{
-  "version": "2.28.0",
-  "versionCode": 121,
-  "forceUpdate": true,
-  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "1. 商品价格限制为指定档位（200/400/800/1600/3200/6400）\n2. 管理后台上架商品可选择卖家，自动显示对应收款码\n3. 修复商品编辑时自动刷新导致内容丢失问题\n4. 7级及以上用户自动成为卖家身份\n5. 卖家身份仅用于收款，不能上传商品"
-}

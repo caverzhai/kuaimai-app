@@ -1,7 +1,0 @@
-{
-    "releaseNotes":  "1. 修复页面无法上下滚动问题\n2. 修复删除单个用户误删所有用户的严重bug\n3. 注册页面新增扫码输入邀请码功能\n4. 扫码按钮更明显，自动启动摄像头\n5. 版本号同步更新机制修复",
-    "downloadUrl":  "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-    "versionCode":  91,
-    "version":  "2.22.0",
-    "forceUpdate":  true
-}

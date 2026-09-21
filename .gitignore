@@ -4,6 +4,7 @@ client/node_modules/
 server/node_modules/
 
 # Build outputs
+server/dist/
 client/dist/
 client/android/app/build/
 client/ios/App/build/
