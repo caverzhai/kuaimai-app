@@ -205,6 +205,7 @@ export class ProductsService {
       detailImages: p.detailImages as { url: string }[],
       status: p.status,
       sortOrder: p.sortOrder,
+      sellerId: p.sellerId ?? undefined,
       sellerId: (p as any).sellerId ?? undefined,
       createdAt: p.createdAt.toISOString(),
     };
