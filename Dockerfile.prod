@@ -2,37 +2,33 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# 安装wget（用于从GitHub下载最新APK）
-RUN apk add --no-cache wget
+# 瀹夎wget锛堢敤浜庝粠GitHub涓嬭浇鏈€鏂癆PK锛?RUN apk add --no-cache wget
 
-# 缓存破坏：每次构建都不同，强制Docker重新执行后续步骤
+# 缂撳瓨鐮村潖锛氭瘡娆℃瀯寤洪兘涓嶅悓锛屽己鍒禗ocker閲嶆柊鎵ц鍚庣画姝ラ
 ARG CACHEBUST=20260921153000
 RUN echo "Cache bust: $CACHEBUST"
 
-# 复制后端代码和共享代码
-COPY server/ ./server/
+# 澶嶅埗鍚庣浠ｇ爜鍜屽叡浜唬鐮?COPY server/ ./server/
 COPY shared/ ./shared/
 
-# 从GitHub下载最新的APK和version.json（覆盖COPY的旧文件，解决Docker缓存问题）
-RUN echo "=== 从GitHub下载最新APK ===" && \
+# 浠嶨itHub涓嬭浇鏈€鏂扮殑APK鍜寁ersion.json锛堣鐩朇OPY鐨勬棫鏂囦欢锛岃В鍐矰ocker缂撳瓨闂锛?RUN echo "=== 浠嶨itHub涓嬭浇鏈€鏂癆PK ===" && \
     wget -O server/public/download/kuaimai.apk "https://raw.githubusercontent.com/caverzhai/kuaimai-app/main/server/public/download/kuaimai.apk" && \
-    echo "APK下载完成，大小: $(wc -c < server/public/download/kuaimai.apk) 字节" && \
-    echo "=== 从GitHub下载最新version.json ===" && \
+    echo "APK涓嬭浇瀹屾垚锛屽ぇ灏? $(wc -c < server/public/download/kuaimai.apk) 瀛楄妭" && \
+    echo "=== 浠嶨itHub涓嬭浇鏈€鏂皏ersion.json ===" && \
     wget -O server/public/version.json "https://raw.githubusercontent.com/caverzhai/kuaimai-app/main/server/public/version.json" && \
     cat server/public/version.json
 
-# 安装依赖并构建
-WORKDIR /app/server
+# 瀹夎渚濊禆骞舵瀯寤?WORKDIR /app/server
 RUN npm install
 RUN npm run build
 
-# 手动复制public到dist（确保APK被复制）
+# 鎵嬪姩澶嶅埗public鍒癲ist锛堢‘淇滱PK琚鍒讹級
 RUN rm -rf dist/public && cp -r public dist/ && echo "public copied to dist" && ls -la dist/public/download/
 
-# 验证构建产物
+# 楠岃瘉鏋勫缓浜х墿
 RUN ls -la dist/server/main.js && echo "Build successful"
 
-# 回到 app 目录
+# 鍥炲埌 app 鐩綍
 WORKDIR /app
 
 ENV NODE_ENV=production
