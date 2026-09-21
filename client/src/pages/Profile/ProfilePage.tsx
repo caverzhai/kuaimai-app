@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   User,
@@ -42,6 +42,7 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const isH5 = !(window as any).Capacitor && !window.AppUpdate;
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
