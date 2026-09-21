@@ -207,7 +207,6 @@ export class ProductsService {
       status: p.status,
       sortOrder: p.sortOrder,
       sellerId: p.sellerId ?? undefined,
-      sellerId: (p as any).sellerId ?? undefined,
       createdAt: p.createdAt.toISOString(),
     };
   }
