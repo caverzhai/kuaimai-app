@@ -1,8 +1,8 @@
-// APP 鐗堟湰閰嶇疆
+// APP version config
 export const APP_VERSION = '2.28.2';
 export const APP_VERSION_CODE = 123;
 
-// 鐗堟湰淇℃伅鎺ュ彛鍦板潃锛堥儴缃插埌鍚庣闈欐€佹枃浠讹級
+// Version check URL (deployed to backend static file)
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
 
 export interface VersionInfo {
@@ -13,7 +13,7 @@ export interface VersionInfo {
   forceUpdate: boolean;
 }
 
-// 鍘熺敓 APP 鏇存柊鎺ュ彛绫诲瀷澹版槑
+// Native APP update interface type declaration
 declare global {
   interface Window {
     AppUpdate?: {
@@ -23,7 +23,7 @@ declare global {
   }
 }
 
-// 鑾峰彇褰撳墠 APP 鐗堟湰锛堜紭鍏堜娇鐢ㄥ師鐢熻幏鍙栵紝闄嶇骇浣跨敤鍓嶇閰嶇疆锛?
+// Get current APP version (prefer native, fallback to frontend config)
 export function getCurrentVersion(): { versionName: string; versionCode: number } {
   try {
     if (window.AppUpdate && typeof window.AppUpdate.getCurrentVersion === 'function') {
@@ -33,14 +33,14 @@ export function getCurrentVersion(): { versionName: string; versionCode: number 
       }
     }
   } catch (error) {
-    console.error('鑾峰彇鍘熺敓鐗堟湰鍙峰け璐?, error);
+    console.error('Failed to get native version', error);
   }
   return { versionName: APP_VERSION, versionCode: APP_VERSION_CODE };
 }
 
-// 妫€鏌ユ洿鏂帮紙浠呭湪APP鐜涓嬫鏌ワ紝H5缃戦〉鐗堜笉妫€鏌PP鏇存柊锛?
+// Check update (only in native APP environment, H5 web version does not check)
 export async function checkUpdate(): Promise<VersionInfo | null> {
-  // H5缃戦〉鐜涓嶆鏌PP鏇存柊锛岄伩鍏嶆棤闄愬惊鐜彁绀?
+  // H5 web environment does not check APP update, avoid infinite loop
   const isNativeApp = (window as any).Capacitor?.isNativePlatform === true || !!window.AppUpdate;
   if (!isNativeApp) {
     return null;
@@ -55,22 +55,22 @@ export async function checkUpdate(): Promise<VersionInfo | null> {
     }
     return null;
   } catch (error) {
-    console.error('妫€鏌ユ洿鏂板け璐?, error);
+    console.error('Failed to check update', error);
     return null;
   }
 }
 
-// 涓嬭浇骞跺畨瑁呮洿鏂?
+// Download and install update
 export function downloadAndInstall(versionInfo: VersionInfo): boolean {
   try {
-    // 濡傛灉AppUpdate鎺ュ彛宸叉敞鍏ワ紝鐩存帴璋冪敤
+    // If AppUpdate interface is injected, call directly
     if (window.AppUpdate && typeof window.AppUpdate.downloadAndInstall === 'function') {
       const result = JSON.parse(
         window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version)
       );
       if (result.success === true) return true;
     }
-    // APP鐜浣嗘帴鍙ｆ湭娉ㄥ叆锛氳疆璇㈢瓑寰呮敞鍏ワ紙鏈€澶氱瓑寰?绉掞級
+    // APP environment but interface not injected: poll wait for injection (max 3 seconds)
     if ((window as any).Capacitor) {
       let waitCount = 0;
       const waitForInject = setInterval(() => {
@@ -80,20 +80,19 @@ export function downloadAndInstall(versionInfo: VersionInfo): boolean {
           window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version);
         } else if (waitCount > 10) {
           clearInterval(waitForInject);
-          // 娉ㄥ叆瓒呮椂锛岄檷绾х敤绯荤粺娴忚鍣ㄦ墦寮€
+          // Injection timeout, fallback to system browser
           window.open(versionInfo.downloadUrl, '_system');
         }
       }, 300);
       return true;
     }
-    // 缃戦〉鐜锛屾墦寮€涓嬭浇閾炬帴
+    // Web environment, open download link
     window.open(versionInfo.downloadUrl, '_blank');
     return true;
   } catch (error) {
-    console.error('涓嬭浇鏇存柊澶辫触', error);
-    // 闄嶇骇澶勭悊锛氱洿鎺ヨ烦杞?
+    console.error('Failed to download update', error);
+    // Fallback: direct redirect
     window.location.href = versionInfo.downloadUrl;
     return true;
   }
 }
-
