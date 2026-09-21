@@ -1,0 +1,7 @@
+{
+  "version": "2.28.7",
+  "versionCode": 130,
+  "forceUpdate": true,
+  "releaseNotes": "卖家订单审核功能+全局强制更新",
+  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk"
+}
