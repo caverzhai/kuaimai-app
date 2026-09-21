@@ -95,17 +95,16 @@ export default function MallOrderConfirmPage() {
     try {
       setSubmitting(true);
       setError(null);
-      setOrder(
-        (await createMallOrder({
-          productId,
-          quantity: qty,
-          receiveName: name.trim(),
-          receivePhone: phone.trim(),
-          receiveAddress: addr.trim(),
-        })) as MallOrderInfo,
-      );
+      const newOrder = (await createMallOrder({
+        productId,
+        quantity: qty,
+        receiveName: name.trim(),
+        receivePhone: phone.trim(),
+        receiveAddress: addr.trim(),
+      })) as MallOrderInfo;
+      setOrder(newOrder);
       setQrcode(
-        (await getOrderQrcode(order.id)) as PlatformQrcodeInfo,
+        (await getOrderQrcode(newOrder.id)) as PlatformQrcodeInfo,
       );
       setStep('payment');
     } catch (e) {
