@@ -453,7 +453,7 @@ export class UpgradeService {
       }
     }
 
-    const updateData: Record<string, string> = { level: toLevel };
+    const updateData: Record<string, any> = { level: toLevel };
 
     // Level 4 and above: generate invite code if not present
     const levelNum: number = LEVEL_ORDER.indexOf(toLevel);
@@ -462,6 +462,13 @@ export class UpgradeService {
     if (isHighLevel) {
       const code: string = await this.generateUniqueInviteCode();
       updateData.inviteCode = code;
+    }
+
+    // Level 7 and above: automatically become seller
+    const isSellerLevel: boolean = levelNum >= LEVEL_ORDER.indexOf('level_7');
+    if (isSellerLevel) {
+      updateData.isSeller = true;
+      updateData.sellerStatus = 'approved';
     }
 
     await this.db

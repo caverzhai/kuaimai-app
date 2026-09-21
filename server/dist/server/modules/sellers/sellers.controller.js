@@ -28,13 +28,13 @@ let SellersController = class SellersController {
         return this.sellersService.getSellerProducts(this.sellerId(req), parseInt(page, 10), parseInt(pageSize, 10), status);
     }
     async createProduct(req, body) {
-        return this.sellersService.createSellerProduct(this.sellerId(req), body);
+        return { success: false, message: '卖家身份仅用于收款，不能上传商品，请联系管理员上架商品' };
     }
     async updateProduct(req, id, body) {
-        return this.sellersService.updateSellerProduct(this.sellerId(req), id, body);
+        return { success: false, message: '卖家身份仅用于收款，不能编辑商品，请联系管理员' };
     }
     async toggleProductStatus(req, id) {
-        return this.sellersService.toggleSellerProductStatus(this.sellerId(req), id);
+        return { success: false, message: '卖家身份仅用于收款，不能上下架商品，请联系管理员' };
     }
     async getOrders(req, page = '1', pageSize = '20', status) {
         return this.sellersService.getSellerOrders(this.sellerId(req), parseInt(page, 10), parseInt(pageSize, 10), status);

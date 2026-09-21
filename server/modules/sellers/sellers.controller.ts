@@ -29,22 +29,22 @@ export class SellersController {
     );
   }
 
-  /** 商家创建商品（直接上架，无需审核） */
+  /** 卖家不能上传商品，仅管理员可上传 */
   @Post('products')
   async createProduct(@Req() req: any, @Body() body: any) {
-    return this.sellersService.createSellerProduct(this.sellerId(req), body);
+    return { success: false, message: '卖家身份仅用于收款，不能上传商品，请联系管理员上架商品' };
   }
 
-  /** 商家编辑商品 */
+  /** 卖家不能编辑商品，仅管理员可编辑 */
   @Patch('products/:id')
   async updateProduct(@Req() req: any, @Param('id') id: string, @Body() body: any) {
-    return this.sellersService.updateSellerProduct(this.sellerId(req), id, body);
+    return { success: false, message: '卖家身份仅用于收款，不能编辑商品，请联系管理员' };
   }
 
-  /** 商家上下架商品 */
+  /** 卖家不能上下架商品，仅管理员可操作 */
   @Post('products/:id/toggle-status')
   async toggleProductStatus(@Req() req: any, @Param('id') id: string) {
-    return this.sellersService.toggleSellerProductStatus(this.sellerId(req), id);
+    return { success: false, message: '卖家身份仅用于收款，不能上下架商品，请联系管理员' };
   }
 
   // ==================== 订单管理 ====================

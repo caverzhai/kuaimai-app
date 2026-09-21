@@ -277,6 +277,11 @@ let UpgradeService = UpgradeService_1 = class UpgradeService {
             const code = await this.generateUniqueInviteCode();
             updateData.inviteCode = code;
         }
+        const isSellerLevel = levelNum >= LEVEL_ORDER.indexOf('level_7');
+        if (isSellerLevel) {
+            updateData.isSeller = true;
+            updateData.sellerStatus = 'approved';
+        }
         await this.db
             .update(schema_1.users)
             .set(updateData)
