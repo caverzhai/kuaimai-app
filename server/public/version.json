@@ -1,0 +1,7 @@
+{
+  "version": "2.28.5",
+  "versionCode": 128,
+  "forceUpdate": true,
+  "releaseNotes": "修复商品下单和卖家收款码问题",
+  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk"
+}
