@@ -1,6 +1,6 @@
-// APP version config
-export const APP_VERSION = '2.28.3';
-export const APP_VERSION_CODE = 125;
+﻿// APP version config
+export const APP_VERSION = '2.28.4';
+export const APP_VERSION_CODE = 127;
 
 // Version check URL (deployed to backend static file)
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
