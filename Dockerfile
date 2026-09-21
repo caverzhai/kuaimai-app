@@ -2,31 +2,33 @@
 
 WORKDIR /app
 
-# 瀹夎wget锛堢敤浜庝粠GitHub涓嬭浇鏈€鏂皏ersion.json锛?RUN apk add --no-cache wget
+# 安装wget
+RUN apk add --no-cache wget
 
-# 缂撳瓨鐮村潖锛氭瘡娆℃瀯寤洪兘涓嶅悓锛屽己鍒禗ocker閲嶆柊鎵ц鍚庣画姝ラ
-ARG CACHEBUST=20260921160000
+# 缓存破坏：每次构建都不同，强制docker重新执行后续步骤
+ARG CACHEBUST=20260922090000
 RUN echo "Cache bust: $CACHEBUST"
 
-# 澶嶅埗鍚庣浠ｇ爜鍜屽叡浜唬鐮?COPY server/ ./server/
+# 复制后端代码和共享代码
+COPY server/ ./server/
 COPY shared/ ./shared/
 
-# 浠嶨itHub涓嬭浇鏈€鏂皏ersion.json锛圓PK澶ぇ锛岃烦杩囦笅杞斤級
-RUN echo "=== 浠嶨itHub涓嬭浇鏈€鏂皏ersion.json ===" && \
+# 从GitHub下载最新version.json和APK
+RUN echo "=== 从GitHub下载最新version.json和APK ===" && \
     wget -O server/public/version.json "https://raw.githubusercontent.com/caverzhai/kuaimai-app/main/server/public/version.json" && \
+    wget -O server/public/download/kuaimai.apk "https://raw.githubusercontent.com/caverzhai/kuaimai-app/main/server/public/download/kuaimai.apk" && \
+    ls -lh server/public/download/kuaimai.apk && \
     cat server/public/version.json
 
-# 瀹夎渚濊禆骞舵瀯寤?WORKDIR /app/server
+# 安装依赖并构建
+WORKDIR /app/server
 RUN npm install
 RUN npm run build
 
-# 鎵嬪姩澶嶅埗public鍒癲ist锛堢‘淇滱PK琚鍒讹級
-# public is already in dist/server/public, no extra copy needed
-
-# 楠岃瘉鏋勫缓浜х墿
+# 验证构建产物
 RUN ls -la dist/server/main.js && echo "Build successful"
 
-# 鍥炲埌 app 鐩綍
+# 回到 app 目录
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -35,4 +37,3 @@ ENV PORT=3000
 EXPOSE 3000
 
 CMD ["node", "server/dist/server/main.js"]
-
