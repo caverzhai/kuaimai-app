@@ -199,7 +199,7 @@ export class AdminService {
     const offset = (page - 1) * pageSize;
 
     // 平台后台只显示平台自营订单（sellerId 为空）；卖家商品订单由卖家在自己后台处理
-    const conditions = [sql${mallOrders.sellerId} IS NULL];
+    const conditions = [sql`${mallOrders.sellerId} IS NULL`];
     if (params.status) conditions.push(eq(mallOrders.status, params.status));
     const whereClause = and(...conditions);
 
