@@ -439,8 +439,8 @@ exports.managementFees = (0, pg_core_1.pgTable)("management_fees", {
     confirmedBy: (0, pg_core_1.uuid)("confirmed_by"),
     confirmedAt: (0, exports.customTimestamptz)("confirmed_at", { precision: 3 }),
     deadline: (0, exports.customTimestamptz)("deadline", { precision: 3 }),
-    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
-    updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+    updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 }, (table) => [
     (0, pg_core_1.index)("idx_management_fees_seller_id").on(table.sellerId),
     (0, pg_core_1.index)("idx_management_fees_status").on(table.status),

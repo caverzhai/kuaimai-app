@@ -520,8 +520,8 @@ export const managementFees = pgTable("management_fees", {
   confirmedBy: uuid("confirmed_by"),
   confirmedAt: customTimestamptz("confirmed_at", { precision: 3 }),
   deadline: customTimestamptz("deadline", { precision: 3 }),
-  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
-  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   index("idx_management_fees_seller_id").on(table.sellerId),
   index("idx_management_fees_status").on(table.status),
