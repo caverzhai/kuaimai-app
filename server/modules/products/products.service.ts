@@ -166,6 +166,7 @@ export class ProductsService {
       detailImages: item.detailImages as { url: string }[],
       status: item.status,
       sortOrder: item.sortOrder,
+      sellerId: (item as any).sellerId ?? undefined,
       createdAt: item.createdAt.toISOString(),
     }));
 
