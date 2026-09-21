@@ -17,7 +17,7 @@ exports.ChatMessagesService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const schema_1 = require("@server/database/schema");
+const schema_1 = require("../../database/schema");
 const chat_rooms_service_1 = require("../chat-rooms/chat-rooms.service");
 const MESSAGE_EXPIRE_MINUTES = 30;
 let ChatMessagesService = ChatMessagesService_1 = class ChatMessagesService {

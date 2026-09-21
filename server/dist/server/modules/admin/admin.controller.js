@@ -14,11 +14,11 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AdminController = void 0;
 const common_1 = require("@nestjs/common");
-const auth_guard_1 = require("@server/common/guards/auth.guard");
-const admin_guard_1 = require("@server/common/guards/admin.guard");
+const auth_guard_1 = require("../../common/guards/auth.guard");
+const admin_guard_1 = require("../../common/guards/admin.guard");
 const admin_service_1 = require("./admin.service");
-const database_module_1 = require("@server/database/database.module");
-const schema_1 = require("@server/database/schema");
+const database_module_1 = require("../../database/database.module");
+const schema_1 = require("../../database/schema");
 const drizzle_orm_1 = require("drizzle-orm");
 const ADMIN_PHONES = ['13800000000'];
 function checkAdmin(req) {

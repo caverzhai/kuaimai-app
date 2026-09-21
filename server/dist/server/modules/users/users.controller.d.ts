@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import { UsersService } from './users.service';
-import type { SupplementInviterDTO, UpdateProfileDTO, UserInfo } from '@shared/api.interface';
+import type { SupplementInviterDTO, UpdateProfileDTO, UserInfo } from '../../../shared/api.interface';
 export declare class UsersController {
     private readonly usersService;
     constructor(usersService: UsersService);

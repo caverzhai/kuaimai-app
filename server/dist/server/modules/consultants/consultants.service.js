@@ -17,8 +17,8 @@ exports.ConsultantsService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const schema_1 = require("@server/database/schema");
-const api_interface_1 = require("@shared/api.interface");
+const schema_1 = require("../../database/schema");
+const api_interface_1 = require("../../../shared/api.interface");
 let ConsultantsService = ConsultantsService_1 = class ConsultantsService {
     db;
     logger = new common_1.Logger(ConsultantsService_1.name);

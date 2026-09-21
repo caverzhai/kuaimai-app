@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { LoginResponse, SupplementInviterDTO, UpdateProfileDTO, UserInfo, UserLoginDTO, UserRegisterDTO } from '@shared/api.interface';
+import type { LoginResponse, SupplementInviterDTO, UpdateProfileDTO, UserInfo, UserLoginDTO, UserRegisterDTO } from '../../../shared/api.interface';
 export declare class UsersService {
     private readonly db;
     private readonly logger;

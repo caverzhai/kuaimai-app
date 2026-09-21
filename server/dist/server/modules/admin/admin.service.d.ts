@@ -1,7 +1,7 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { ProductsService } from '@server/modules/products/products.service';
-import { UpgradeService } from '@server/modules/upgrade/upgrade.service';
-import type { ProductInfo, ProductListResponse, MallOrderInfo, MallOrderListResponse, ConsultOrderListResponse, UserInfo, PlatformQrcodeInfo, ReviewDTO, ShipDTO } from '@shared/api.interface';
+import { ProductsService } from '../products/products.service';
+import { UpgradeService } from '../upgrade/upgrade.service';
+import type { ProductInfo, ProductListResponse, MallOrderInfo, MallOrderListResponse, ConsultOrderListResponse, UserInfo, PlatformQrcodeInfo, ReviewDTO, ShipDTO } from '../../../shared/api.interface';
 interface AdminListParams {
     page?: number;
     pageSize?: number;

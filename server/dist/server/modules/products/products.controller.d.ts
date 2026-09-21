@@ -1,5 +1,5 @@
 import { ProductsService } from './products.service';
-import type { ProductListResponse, ProductInfo, ProductCategoryInfo } from '@shared/api.interface';
+import type { ProductListResponse, ProductInfo, ProductCategoryInfo } from '../../../shared/api.interface';
 export declare class ProductsController {
     private readonly productsService;
     constructor(productsService: ProductsService);

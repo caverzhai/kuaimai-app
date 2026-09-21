@@ -17,7 +17,7 @@ exports.ChatRoomsService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const schema_1 = require("@server/database/schema");
+const schema_1 = require("../../database/schema");
 const ADMIN_PHONES = ['13800000000'];
 let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
     db;

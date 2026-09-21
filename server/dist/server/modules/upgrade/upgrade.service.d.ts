@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { UpgradeCenterInfo, UpgradeTaskInfo } from '@shared/api.interface';
+import type { UpgradeCenterInfo, UpgradeTaskInfo } from '../../../shared/api.interface';
 export declare class UpgradeService {
     private readonly db;
     private readonly logger;

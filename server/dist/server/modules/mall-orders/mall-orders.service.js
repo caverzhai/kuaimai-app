@@ -17,9 +17,9 @@ exports.MallOrdersService = void 0;
 const common_1 = require("@nestjs/common");
 const drizzle_orm_1 = require("drizzle-orm");
 const database_module_1 = require("../../database/database.module");
-const schema_1 = require("@server/database/schema");
-const auth_util_1 = require("@server/common/utils/auth.util");
-const api_interface_1 = require("@shared/api.interface");
+const schema_1 = require("../../database/schema");
+const auth_util_1 = require("../../common/utils/auth.util");
+const api_interface_1 = require("../../../shared/api.interface");
 let MallOrdersService = MallOrdersService_1 = class MallOrdersService {
     db;
     logger = new common_1.Logger(MallOrdersService_1.name);
