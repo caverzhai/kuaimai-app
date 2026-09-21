@@ -1,5 +1,5 @@
 // APP version config
-export const APP_VERSION = '2.28.2';
+export const APP_VERSION = '2.28.3';
 export const APP_VERSION_CODE = 123;
 
 // Version check URL (deployed to backend static file)
