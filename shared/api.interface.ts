@@ -69,6 +69,8 @@ export interface ProductInfo {
   detailImages: { url: string }[];
   status: string;
   sortOrder: number;
+  sellerId?: string;
+  sellerName?: string;
   createdAt: string;
 }
 

@@ -68,6 +68,8 @@ export interface ProductInfo {
     }[];
     status: string;
     sortOrder: number;
+    sellerId?: string;
+    sellerName?: string;
     createdAt: string;
 }
 export interface ProductListQuery {
