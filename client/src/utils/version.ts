@@ -38,8 +38,12 @@ export function getCurrentVersion(): { versionName: string; versionCode: number 
   return { versionName: APP_VERSION, versionCode: APP_VERSION_CODE };
 }
 
-// 检查更新
+// 检查更新（仅在APP环境下检查，H5网页版不检查APP更新）
 export async function checkUpdate(): Promise<VersionInfo | null> {
+  // H5网页环境不检查APP更新，避免无限循环提示
+  if (!(window as any).Capacitor && !window.AppUpdate) {
+    return null;
+  }
   try {
     const currentVersion = getCurrentVersion();
     const response = await fetch(VERSION_CHECK_URL, { cache: 'no-cache' });
