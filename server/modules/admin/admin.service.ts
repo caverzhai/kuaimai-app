@@ -59,7 +59,6 @@ interface CreateProductDTO {
   detailImages: { url: string }[];
   sortOrder?: number;
   sellerId?: string;
-  sellerId?: string | null;
 }
 
 interface UpdateProductDTO {
@@ -72,6 +71,7 @@ interface UpdateProductDTO {
   detailImages?: { url: string }[];
   status?: string;
   sortOrder?: number;
+  sellerId?: string;
 }
 
 interface MallOrderListParams extends AdminListParams {
