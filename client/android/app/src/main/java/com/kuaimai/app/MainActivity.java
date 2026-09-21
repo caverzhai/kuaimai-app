@@ -114,9 +114,14 @@ public class MainActivity extends BridgeActivity {
                                 }
                             });
 
-                            // 用HttpURLConnection下载APK
-                            URL url = new URL(finalApkUrl);
+                            // 用HttpURLConnection下载APK（追加时间戳参数，避免CDN/网络缓存下载到旧版本）
+                            String downloadUrl = finalApkUrl;
+                            String cacheSep = downloadUrl.contains("?") ? "&" : "?";
+                            downloadUrl = downloadUrl + cacheSep + "t=" + System.currentTimeMillis();
+                            URL url = new URL(downloadUrl);
                             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                            connection.setRequestProperty("Cache-Control", "no-cache");
+                            connection.setRequestProperty("Pragma", "no-cache");
                             connection.setRequestMethod("GET");
                             connection.setConnectTimeout(30000);
                             connection.setReadTimeout(120000);
