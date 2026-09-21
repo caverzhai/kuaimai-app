@@ -1,7 +1,0 @@
-﻿{
-  "version": "2.28.6",
-  "versionCode": 129,
-  "forceUpdate": true,
-  "releaseNotes": "修复下单失败bug",
-  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk"
-}

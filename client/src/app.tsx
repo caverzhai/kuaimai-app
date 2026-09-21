@@ -4,6 +4,7 @@ import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBac
 
 import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
+import GlobalUpdateCheck from './components/GlobalUpdateCheck';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import LoginPage from './pages/Login/LoginPage';
 import RegisterPage from './pages/Register/RegisterPage';
@@ -32,6 +33,7 @@ const RoutesComponent = () => {
 
   return (
     <ErrorBoundary>
+      <GlobalUpdateCheck />
       <AuthProvider>
         <Routes>
           <Route element={<Layout />}>

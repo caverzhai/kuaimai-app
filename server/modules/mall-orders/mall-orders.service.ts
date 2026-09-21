@@ -301,6 +301,72 @@ export class MallOrdersService {
     };
   }
 
+  /** 卖家获取自己商品的订单 */
+  async getSellerOrders(sellerId: string, page: number, pageSize: number, status?: string): Promise<MallOrderListResponse> {
+    const conditions = [eq(mallOrders.sellerId, sellerId)];
+    if (status) {
+      conditions.push(eq(mallOrders.status, status));
+    }
+
+    const whereClause = and(...conditions);
+
+    const [countResult, items] = await Promise.all([
+      this.db
+        .select({ count: count() })
+        .from(mallOrders)
+        .where(whereClause),
+      this.db
+        .select()
+        .from(mallOrders)
+        .where(whereClause)
+        .orderBy(desc(mallOrders.createdAt))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
+
+    const total = Number(countResult[0]?.count ?? 0);
+
+    return {
+      items: items.map((item) => this.toOrderInfo(item)),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  /** 卖家确认自己商品订单的收款 */
+  async confirmSellerPayment(sellerId: string, id: string): Promise<MallOrderInfo> {
+    const orderList = await this.db
+      .select()
+      .from(mallOrders)
+      .where(eq(mallOrders.id, id));
+
+    const order = orderList[0];
+    if (!order) {
+      throw new NotFoundException('订单不存在');
+    }
+    // 检查订单是否属于该卖家
+    if ((order as any).sellerId !== sellerId) {
+      throw new ForbiddenException('只能审核自己商品的订单');
+    }
+    if (order.status !== MALL_ORDER_STATUS.PENDING_REVIEW) {
+      throw new BadRequestException('当前订单状态不允许确认收款');
+    }
+
+    const now = new Date();
+    const updated = await this.db
+      .update(mallOrders)
+      .set({
+        status: MALL_ORDER_STATUS.PENDING_SHIPMENT,
+        paymentConfirmedAt: now,
+      })
+      .where(eq(mallOrders.id, id))
+      .returning();
+
+    this.logger.log('卖家确认收款: orderId=' + id + ', sellerId=' + sellerId);
+    return this.toOrderInfo(updated[0]);
+  }
+
   /** 定时任务：自动确认超时的收货（免物流20分钟，有物流15天） */
   async autoDeliverExpiredOrdersCron(): Promise<{ delivered: number }> {
     const now = new Date();

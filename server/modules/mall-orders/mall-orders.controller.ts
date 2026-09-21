@@ -109,6 +109,33 @@ export class MallOrdersController {
   }
 
   @UseGuards(AuthGuard)
+  @Get('seller/orders')
+  async getSellerOrders(
+    @Req() req: Request,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('status') status?: string,
+  ): Promise<MallOrderListResponse> {
+    const sellerId = req.user!.userId;
+    return this.mallOrdersService.getSellerOrders(
+      sellerId,
+      parseInt(page, 10),
+      parseInt(pageSize, 10),
+      status,
+    );
+  }
+
+  @UseGuards(AuthGuard)
+  @Post(':id/seller-confirm-payment')
+  async sellerConfirmPayment(
+    @Req() req: Request,
+    @Param('id') id: string,
+  ): Promise<MallOrderInfo> {
+    const sellerId = req.user!.userId;
+    return this.mallOrdersService.confirmSellerPayment(sellerId, id);
+  }
+
+  @UseGuards(AuthGuard)
   @Get(':id/qrcode')
   async getOrderQrcode(
     @Req() req: Request,
