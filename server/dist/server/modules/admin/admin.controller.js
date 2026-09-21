@@ -149,6 +149,25 @@ let AdminController = class AdminController {
             deletedUsers: usersToDelete,
         };
     }
+    async getSellerList(req, status) {
+        checkAdmin(req);
+        let query = this.db.select().from(schema_1.users).where(drizzle_orm_1.sql, is_seller = true);
+        if (status) {
+            query = this.db.select().from(schema_1.users).where(drizzle_orm_1.sql, is_seller = true, AND, seller_status = );
+        }
+        const sellers = await query.orderBy(drizzle_orm_1.sql, _created_at, DESC);
+        return { success: true, sellers };
+    }
+    async auditSeller(req, id, body) {
+        checkAdmin(req);
+        const { action, remark } = body;
+        if (!['approve', 'reject'].includes(action)) {
+            return { success: false, message: '无效的操作类型' };
+        }
+        const sellerStatus = action === 'approve' ? 'approved' : 'rejected';
+        await this.db.update(schema_1.users).set({ isSeller: true, sellerStatus, sellerAuditRemark: remark ?? null }).where(drizzle_orm_1.sql, id = );
+        return { success: true, sellerStatus, message: action === 'approve' ? '卖家审核通过' : '卖家申请已拒绝' };
+    }
 };
 exports.AdminController = AdminController;
 __decorate([
@@ -300,6 +319,23 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AdminController.prototype, "batchDeleteUsers", null);
+__decorate([
+    (0, common_1.Get)('sellers'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Query)('status')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", Promise)
+], AdminController.prototype, "getSellerList", null);
+__decorate([
+    (0, common_1.Post)('sellers/:id/audit'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", Promise)
+], AdminController.prototype, "auditSeller", null);
 exports.AdminController = AdminController = __decorate([
     (0, common_1.Controller)('api/admin'),
     (0, common_1.UseGuards)(auth_guard_1.AuthGuard, admin_guard_1.AdminGuard),

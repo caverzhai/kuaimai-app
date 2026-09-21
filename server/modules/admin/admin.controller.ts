@@ -340,4 +340,29 @@ export class AdminController {
       deletedUsers: usersToDelete,
     };
   }
+
+  // 获取卖家申请列表
+  @Get('sellers')
+  async getSellerList(@Req() req: Request, @Query('status') status?: string) {
+    checkAdmin(req);
+    let query = this.db.select().from(users).where(sql\is_seller = true\);
+    if (status) {
+      query = this.db.select().from(users).where(sql\is_seller = true AND seller_status = \);
+    }
+    const sellers = await query.orderBy(sql\_created_at DESC\);
+    return { success: true, sellers };
+  }
+
+  // 审核卖家申请（通过/拒绝）
+  @Post('sellers/:id/audit')
+  async auditSeller(@Req() req: Request, @Param('id') id: string, @Body() body: any) {
+    checkAdmin(req);
+    const { action, remark } = body;
+    if (!['approve', 'reject'].includes(action)) {
+      return { success: false, message: '无效的操作类型' };
+    }
+    const sellerStatus = action === 'approve' ? 'approved' : 'rejected';
+    await this.db.update(users).set({ isSeller: true, sellerStatus, sellerAuditRemark: remark ?? null }).where(sql\id = \);
+    return { success: true, sellerStatus, message: action === 'approve' ? '卖家审核通过' : '卖家申请已拒绝' };
+  }
 }

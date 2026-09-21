@@ -95,5 +95,61 @@ export declare class AdminController {
         }[];
         users?: undefined;
     }>;
+    getSellerList(req: Request, status?: string): Promise<{
+        success: boolean;
+        sellers: {
+            id: string;
+            phone: string;
+            nickname: string;
+            password: string;
+            avatarUrl: string;
+            gender: string;
+            age: number;
+            level: string;
+            isInvited: boolean;
+            inviterId: string;
+            parentId: string;
+            inviteCode: string;
+            receiveAddress: string;
+            receivePhone: string;
+            industry: string;
+            consultantLevel: string;
+            qualification: string;
+            serviceStandard: string;
+            serviceIntroduction: string;
+            realName: string;
+            wechatId: string;
+            idCardFrontUrl: string;
+            idCardBackUrl: string;
+            idCardNumber: string;
+            address: string;
+            wechatQrcodeUrl: string;
+            alipayQrcodeUrl: string;
+            companyQrcodeUrl: string;
+            businessLicenseUrl: string;
+            companyAuditStatus: string;
+            totalConsultIncome: string;
+            thresholdBlocked: boolean;
+            thresholdTriggeredAt: Date;
+            pendingReclaimAmount: string;
+            overflowLossAmount: string;
+            directInviteCount: number;
+            teamTotalCount: number;
+            treeLevel: number;
+            isSeller: boolean;
+            sellerStatus: string;
+            createdAt: Date;
+            updatedAt: Date;
+        }[];
+    }>;
+    auditSeller(req: Request, id: string, body: any): Promise<{
+        success: boolean;
+        message: string;
+        sellerStatus?: undefined;
+    } | {
+        success: boolean;
+        sellerStatus: string;
+        message: string;
+    }>;
 }
 export {};
