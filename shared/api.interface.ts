@@ -112,6 +112,7 @@ export interface MallOrderInfo {
   cancelledAt?: string;
   autoConfirmDeadline?: string;
   autoDeliveryDeadline?: string;
+  sellerId?: string;
   createdAt: string;
 }
 
