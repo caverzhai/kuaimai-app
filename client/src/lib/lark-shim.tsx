@@ -53,11 +53,17 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
     ? config.url
     : `${baseURL}${config.url.startsWith('/') ? '' : '/'}${config.url}`;
 
+  // 每次请求都从localStorage读取token，确保不会因为useEffect执行顺序导致header丢失
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('kuaimai_token') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...axiosForBackend.defaults.headers.common,
     ...config.headers,
   };
+  // 如果config.headers中没有显式设置Authorization，且localStorage中有token，则自动添加
+  if (!config.headers?.Authorization && !config.headers?.authorization && token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   const method = (config.method || 'GET').toUpperCase();
 
