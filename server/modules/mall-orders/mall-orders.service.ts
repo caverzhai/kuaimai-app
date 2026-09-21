@@ -3,7 +3,7 @@ import { eq, and, desc, count, sql } from 'drizzle-orm';
 import { DRIZZLE_DATABASE } from '../../database/database.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
-import { mallOrders, products } from '@server/database/schema';
+import { mallOrders, products, users, platformQrcodes } from '@server/database/schema';
 import { generateOrderNo } from '@server/common/utils/auth.util';
 import { MALL_ORDER_STATUS } from '@shared/api.interface';
 import type {
@@ -52,6 +52,7 @@ export class MallOrdersService {
       autoDeliveryDeadline: order.autoDeliveryDeadline
         ? order.autoDeliveryDeadline.toISOString()
         : undefined,
+      sellerId: (order as any).sellerId ?? undefined,
       createdAt: order.createdAt.toISOString(),
     };
   }
@@ -97,6 +98,7 @@ export class MallOrdersService {
         receivePhone: dto.receivePhone,
         receiveAddress: dto.receiveAddress,
         status: MALL_ORDER_STATUS.PENDING_PAYMENT,
+        sellerId: (product as any).sellerId ?? null,
       })
       .returning();
 
@@ -375,5 +377,60 @@ export class MallOrdersService {
     }
 
     return { confirmed };
+  }
+
+  /** 获取订单对应的收款码（根据订单sellerId判断显示卖家收款码还是平台收款码） */
+  async getOrderQrcode(userId: string, orderId: string): Promise<{
+    wechatQrcodeUrl?: string;
+    alipayQrcodeUrl?: string;
+  }> {
+    const orderList = await this.db
+      .select()
+      .from(mallOrders)
+      .where(eq(mallOrders.id, orderId))
+      .limit(1);
+
+    const order = orderList[0];
+    if (!order) {
+      throw new NotFoundException('订单不存在');
+    }
+    if (order.userId !== userId) {
+      throw new ForbiddenException('无权查看该订单');
+    }
+
+    const sellerId = (order as any).sellerId;
+
+    // 如果订单有卖家，获取卖家的收款码
+    if (sellerId) {
+      const sellerList = await this.db
+        .select()
+        .from(users)
+        .where(eq(users.id, sellerId))
+        .limit(1);
+      const seller = sellerList[0];
+      if (seller) {
+        return {
+          wechatQrcodeUrl: (seller as any).wechatQrcodeUrl ?? undefined,
+          alipayQrcodeUrl: (seller as any).alipayQrcodeUrl ?? undefined,
+        };
+      }
+    }
+
+    // 没有卖家，返回平台收款码
+    const platformQrList = await this.db
+      .select()
+      .from(platformQrcodes)
+      .where(eq(platformQrcodes.type, 'mall_platform'))
+      .limit(1);
+
+    if (platformQrList.length === 0) {
+      return {};
+    }
+
+    const qr = platformQrList[0];
+    return {
+      wechatQrcodeUrl: qr.wechatQrcodeUrl ?? undefined,
+      alipayQrcodeUrl: qr.alipayQrcodeUrl ?? undefined,
+    };
   }
 }

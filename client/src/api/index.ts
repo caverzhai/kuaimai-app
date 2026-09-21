@@ -425,6 +425,18 @@ export async function getPlatformQrcode(type: string) {
   }
 }
 
+export async function getOrderQrcode(orderId: string) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/mall-orders/' + orderId + '/qrcode',
+      method: 'GET',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取订单收款码失败', error);
+    throw error;
+  }
+}
 export async function getAdminProducts(params: Record<string, unknown>) {
   try {
     const response = await axiosForBackend({

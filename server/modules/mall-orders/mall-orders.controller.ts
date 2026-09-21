@@ -107,4 +107,14 @@ export class MallOrdersController {
       status,
     );
   }
+
+  @UseGuards(AuthGuard)
+  @Get(':id/qrcode')
+  async getOrderQrcode(
+    @Req() req: Request,
+    @Param('id') id: string,
+  ): Promise<{ wechatQrcodeUrl?: string; alipayQrcodeUrl?: string }> {
+    const userId = req.user!.userId;
+    return this.mallOrdersService.getOrderQrcode(userId, id);
+  }
 }

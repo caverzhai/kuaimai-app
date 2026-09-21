@@ -19,6 +19,7 @@ import {
   getProductDetail,
   createMallOrder,
   getPlatformQrcode,
+  getOrderQrcode,
   uploadMallPayment,
 } from '../../api';
 import { uploadImageToServer } from '../../utils/imageUpload';
@@ -104,7 +105,7 @@ export default function MallOrderConfirmPage() {
         })) as MallOrderInfo,
       );
       setQrcode(
-        (await getPlatformQrcode('mall_platform')) as PlatformQrcodeInfo,
+        (await getOrderQrcode(order.id)) as PlatformQrcodeInfo,
       );
       setStep('payment');
     } catch (e) {
