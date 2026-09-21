@@ -117,6 +117,13 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
       const responseHeaders: Record<string, string> = response.headers ?? {};
       let responseData: unknown = response.data ?? '';
 
+      // status === 0 表示原生网络层失败（Java 捕获异常后返回的兜底），
+      // 绝不能当成成功响应；抛出特殊标记，交给下方标准 fetch 降级重试。
+      if (status === 0) {
+        console.warn('[NativeHttp] 原生请求 status=0，降级 fetch:', finalUrl, responseData);
+        throw new Error('NATIVE_HTTP_FALLBACK');
+      }
+
       // 尝试解析 JSON 响应体
       if (typeof responseData === 'string' && responseData) {
         try {
@@ -147,10 +154,12 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
         headers: responseHeaders,
       };
     } catch (error: unknown) {
-      if (error instanceof Error) {
+      // 业务 HTTP 错误（如 401/403，带 response）必须继续上抛，不能吞掉
+      if (error && typeof error === 'object' && 'response' in error) {
         throw error;
       }
-      throw new Error(String(error));
+      // 原生桥接异常 / status=0 / 返回解析失败：记录后降级到标准 fetch 重试
+      console.warn('[NativeHttp] 原生桥接异常，降级 fetch:', error);
     }
   }
 

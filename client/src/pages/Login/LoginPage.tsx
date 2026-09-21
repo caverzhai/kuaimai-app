@@ -30,11 +30,20 @@ const LoginPage = () => {
       navigate('/');
     } catch (err: unknown) {
       logger.error('登录失败', err);
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response
-              ?.data?.message || '登录失败，请检查账号密码'
-          : '登录失败，请检查账号密码';
+      const e = err as {
+        response?: { status?: number; data?: { message?: string } };
+        message?: string;
+      };
+      let msg: string;
+      if (e?.response?.data?.message) {
+        // 后端业务错误（如手机号或密码错误）
+        msg = e.response.data.message;
+      } else if (e?.response?.status) {
+        msg = `登录失败（错误码 ${e.response.status}），请稍后重试`;
+      } else {
+        // 无响应 = 网络层 / 跨域 / 服务器不可达
+        msg = '无法连接服务器（网络错误），请检查网络或切换 Wi-Fi/流量后重试';
+      }
       setError(msg);
     } finally {
       setLoading(false);
@@ -72,6 +81,11 @@ const LoginPage = () => {
                 />
                 <input
                   type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="请输入手机号"
@@ -91,6 +105,10 @@ const LoginPage = () => {
                 />
                 <input
                   type="password"
+                  autoComplete="current-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="请输入密码"

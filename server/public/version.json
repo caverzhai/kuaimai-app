@@ -1,8 +1,8 @@
 {
-  "version": "2.30.0",
-  "versionCode": 134,
+  "version": "2.31.0",
+  "versionCode": 135,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "1.修复登录与下单；2.卖家订单管理移至任务中心，支持快递/自提/无需物流三种发货；3.卖家订单仅卖家可见；4.关系树移至实名认证下方；5.商品管理支持删除；6.管理员可重置用户密码；7.修复自动更新下载缓存问题。",
+  "releaseNotes": "修复APP登录：原生网络异常时自动切换通道、放开跨域、兼容输入空格，并明确区分网络错误与密码错误提示。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 134
+  "forceUpdateBelowCode": 135
 }

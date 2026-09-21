@@ -118,7 +118,16 @@ async function bootstrap() {
     origin: (origin, callback) => {
       // 允许无 origin 的请求（如移动端原生请求、curl）
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || origin.startsWith('http://192.168.') || origin.startsWith('http://10.')) {
+      const o = String(origin).toLowerCase();
+      // 允许 Capacitor 本地容器（http/https/capacitor 各 scheme、localhost 任意端口）
+      const isLocalContainer =
+        allowedOrigins.includes(origin) ||
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(o) ||
+        o.startsWith('capacitor://localhost') ||
+        o.startsWith('http://localhost') ||
+        o.startsWith('https://localhost') ||
+        /^https?:\/\/(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(o);
+      if (isLocalContainer) {
         return callback(null, true);
       }
       // 开发环境允许所有

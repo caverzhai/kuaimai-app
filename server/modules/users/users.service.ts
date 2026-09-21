@@ -191,31 +191,59 @@ export class UsersService {
   // ── Login ─────────────────────────────────────────────────────
 
   async login(dto: UserLoginDTO): Promise<LoginResponse> {
+    // —— 登录诊断（临时，用于排查 APP 登录问题，定位后移除）——
+    const diag = new Logger('LoginDiag');
+    const rawPhone = dto?.phone;
+    const rawPwd = dto?.password;
+    const phoneNorm = String(rawPhone ?? '').trim();
+    const pwdStr = String(rawPwd ?? '');
+    const pwdTrim = pwdStr.trim();
+    diag.log(
+      `login phone=${JSON.stringify(rawPhone)} phoneNorm=${JSON.stringify(phoneNorm)} ` +
+      `pwdLen=${pwdStr.length} pwdTrimLen=${pwdTrim.length} ` +
+      `hasNonAscii=${/[^\x20-\x7e]/.test(pwdStr)} edgeSpace=${pwdStr !== pwdTrim} ` +
+      `dtoKeys=${JSON.stringify(Object.keys(dto || {}))}`,
+    );
+
     const userRows = await this.db
       .select()
       .from(users)
-      .where(eq(users.phone, dto.phone))
+      .where(eq(users.phone, phoneNorm))
       .limit(1);
 
     if (userRows.length === 0) {
+      diag.warn(`login 用户不存在 phoneNorm=${JSON.stringify(phoneNorm)}`);
       throw new UnauthorizedException('手机号或密码错误');
     }
 
     const user = userRows[0];
-    // 先尝试 bcrypt 验证
-    let passwordValid = await verifyPassword(dto.password, user.password);
-    // 如果失败，尝试旧的 SHA256 验证（兼容旧用户）
-    if (!passwordValid && verifyLegacyPassword(dto.password, user.password)) {
+    // 先尝试 bcrypt 验证（原始密码）
+    let passwordValid = await verifyPassword(pwdStr, user.password);
+    // 首尾空格兼容（部分手机输入法会自动追加空格）
+    if (!passwordValid && pwdStr !== pwdTrim) {
+      passwordValid = await verifyPassword(pwdTrim, user.password);
+    }
+    // 仍失败则尝试旧的 SHA256 验证（兼容老用户，原始 + 去空格）
+    if (!passwordValid && verifyLegacyPassword(pwdStr, user.password)) {
       passwordValid = true;
-      // 验证成功后自动升级为 bcrypt 哈希
+    }
+    if (!passwordValid && pwdStr !== pwdTrim && verifyLegacyPassword(pwdTrim, user.password)) {
+      passwordValid = true;
+    }
+    if (passwordValid) {
+      // 验证成功后统一升级为 bcrypt 哈希
       try {
-        const newHash = await hashPassword(dto.password);
+        const rawOk = await verifyPassword(pwdStr, user.password);
+        const finalPwd = rawOk ? pwdStr : pwdTrim;
+        const newHash = await hashPassword(finalPwd);
         await this.db.update(users).set({ password: newHash }).where(eq(users.id, user.id));
       } catch {}
     }
     if (!passwordValid) {
+      diag.warn(`login 密码不匹配 phoneNorm=${JSON.stringify(phoneNorm)} pwdLen=${pwdStr.length}`);
       throw new UnauthorizedException('手机号或密码错误');
     }
+    diag.log(`login 成功 phoneNorm=${JSON.stringify(phoneNorm)}`);
 
     const token = this.makeToken(user);
     const userInfo = this.toUserInfo(user);
