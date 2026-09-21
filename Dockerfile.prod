@@ -2,33 +2,33 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# 瀹夎wget锛堢敤浜庝粠GitHub涓嬭浇鏈€鏂癆PK锛?RUN apk add --no-cache wget
+# Install wget for downloading APK
+RUN apk add --no-cache wget
 
-# 缂撳瓨鐮村潖锛氭瘡娆℃瀯寤洪兘涓嶅悓锛屽己鍒禗ocker閲嶆柊鎵ц鍚庣画姝ラ
-ARG CACHEBUST=20260921153000
+# Cache bust to force rebuild
+ARG CACHEBUST=20260921163000
 RUN echo "Cache bust: $CACHEBUST"
 
-# 澶嶅埗鍚庣浠ｇ爜鍜屽叡浜唬鐮?COPY server/ ./server/
+# Copy backend and shared code
+COPY server/ ./server/
 COPY shared/ ./shared/
 
-# 浠嶨itHub涓嬭浇鏈€鏂扮殑APK鍜寁ersion.json锛堣鐩朇OPY鐨勬棫鏂囦欢锛岃В鍐矰ocker缂撳瓨闂锛?RUN echo "=== 浠嶨itHub涓嬭浇鏈€鏂癆PK ===" && \
+# Download latest APK from GitHub (overwrites COPY)
+RUN echo "=== Download latest APK ===" && \
     wget -O server/public/download/kuaimai.apk "https://raw.githubusercontent.com/caverzhai/kuaimai-app/main/server/public/download/kuaimai.apk" && \
-    echo "APK涓嬭浇瀹屾垚锛屽ぇ灏? $(wc -c < server/public/download/kuaimai.apk) 瀛楄妭" && \
-    echo "=== 浠嶨itHub涓嬭浇鏈€鏂皏ersion.json ===" && \
-    wget -O server/public/version.json "https://raw.githubusercontent.com/caverzhai/kuaimai-app/main/server/public/version.json" && \
-    cat server/public/version.json
+    echo "APK downloaded, size: $(wc -c < server/public/download/kuaimai.apk) bytes"
 
-# 瀹夎渚濊禆骞舵瀯寤?WORKDIR /app/server
+# Install dependencies and build
+WORKDIR /app/server
 RUN npm install
 RUN npm run build
 
-# 鎵嬪姩澶嶅埗public鍒癲ist锛堢‘淇滱PK琚鍒讹級
-RUN rm -rf dist/public && cp -r public dist/ && echo "public copied to dist" && ls -la dist/public/download/
+# Copy public to dist (ensure APK is included)
+RUN rm -rf dist/public && cp -r public dist/ && echo "public copied to dist"
 
-# 楠岃瘉鏋勫缓浜х墿
+# Verify build
 RUN ls -la dist/server/main.js && echo "Build successful"
 
-# 鍥炲埌 app 鐩綍
 WORKDIR /app
 
 ENV NODE_ENV=production
