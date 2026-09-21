@@ -1,57 +1,134 @@
-import type { Request } from 'express';
 import { SellersService } from './sellers.service';
-import type { ProductInfo, ProductListResponse, MallOrderInfo, MallOrderListResponse, ManagementFeeInfo, ManagementFeeListResponse, SellerStatsInfo, SellerApplyDTO, ShipDTO } from '../../../shared/api.interface';
-interface SellerProductBody {
-    name: string;
-    price: string;
-    description?: string;
-    category?: string;
-    spec?: string;
-    mainImages: {
-        url: string;
-    }[];
-    detailImages: {
-        url: string;
-    }[];
-    sortOrder?: number;
-    sellerWechatQrcodeUrl?: string;
-    sellerAlipayQrcodeUrl?: string;
-}
-interface UpdateSellerProductBody {
-    name?: string;
-    price?: string;
-    description?: string;
-    category?: string;
-    spec?: string;
-    mainImages?: {
-        url: string;
-    }[];
-    detailImages?: {
-        url: string;
-    }[];
-    sortOrder?: number;
-    sellerWechatQrcodeUrl?: string;
-    sellerAlipayQrcodeUrl?: string;
-}
-interface PayFeeBody {
-    screenshotUrl: string;
-}
 export declare class SellersController {
     private readonly sellersService;
     constructor(sellersService: SellersService);
     private sellerId;
-    getProducts(req: Request, page?: string, pageSize?: string, status?: string): Promise<ProductListResponse>;
-    createProduct(req: Request, body: SellerProductBody): Promise<ProductInfo>;
-    updateProduct(req: Request, id: string, body: UpdateSellerProductBody): Promise<ProductInfo>;
-    toggleProductStatus(req: Request, id: string): Promise<ProductInfo>;
-    getOrders(req: Request, page?: string, pageSize?: string, status?: string): Promise<MallOrderListResponse>;
-    shipOrder(req: Request, id: string, dto: ShipDTO): Promise<MallOrderInfo>;
-    getManagementFees(req: Request, page?: string, pageSize?: string, status?: string): Promise<ManagementFeeListResponse>;
-    payManagementFee(req: Request, id: string, body: PayFeeBody): Promise<ManagementFeeInfo>;
-    getStats(req: Request): Promise<SellerStatsInfo>;
-    apply(req: Request, dto: SellerApplyDTO): Promise<{
+    getProducts(req: any, page?: string, pageSize?: string, status?: string): Promise<{
+        items: any;
+        total: number;
+        page: number;
+        pageSize: number;
+    }>;
+    createProduct(req: any, body: any): Promise<{
+        id: any;
+        name: any;
+        price: string;
+        description: any;
+        category: any;
+        spec: any;
+        sellerId: any;
+        sellerName: any;
+        sellerWechatQrcodeUrl: any;
+        sellerAlipayQrcodeUrl: any;
+        mainImages: any;
+        detailImages: any;
+        status: any;
+        sortOrder: any;
+        createdAt: any;
+    }>;
+    updateProduct(req: any, id: string, body: any): Promise<{
+        id: any;
+        name: any;
+        price: string;
+        description: any;
+        category: any;
+        spec: any;
+        sellerId: any;
+        sellerName: any;
+        sellerWechatQrcodeUrl: any;
+        sellerAlipayQrcodeUrl: any;
+        mainImages: any;
+        detailImages: any;
+        status: any;
+        sortOrder: any;
+        createdAt: any;
+    }>;
+    toggleProductStatus(req: any, id: string): Promise<{
+        id: any;
+        name: any;
+        price: string;
+        description: any;
+        category: any;
+        spec: any;
+        sellerId: any;
+        sellerName: any;
+        sellerWechatQrcodeUrl: any;
+        sellerAlipayQrcodeUrl: any;
+        mainImages: any;
+        detailImages: any;
+        status: any;
+        sortOrder: any;
+        createdAt: any;
+    }>;
+    getOrders(req: any, page?: string, pageSize?: string, status?: string): Promise<{
+        items: any;
+        total: number;
+        page: number;
+        pageSize: number;
+    }>;
+    shipOrder(req: any, id: string, dto: any): Promise<{
+        id: any;
+        orderNo: any;
+        userId: any;
+        productId: any;
+        productName: any;
+        productImage: any;
+        price: string;
+        quantity: any;
+        totalAmount: string;
+        receiveName: any;
+        receivePhone: any;
+        receiveAddress: any;
+        sellerId: any;
+        sellerName: any;
+        status: any;
+        paymentScreenshotUrl: any;
+        paymentConfirmedAt: any;
+        logisticsCompany: any;
+        logisticsNo: any;
+        shippedAt: any;
+        deliveredAt: any;
+        cancelReason: any;
+        cancelledAt: any;
+        autoConfirmDeadline: any;
+        autoDeliveryDeadline: any;
+        createdAt: any;
+    }>;
+    getManagementFees(req: any, page?: string, pageSize?: string, status?: string): Promise<{
+        items: any;
+        total: number;
+        page: number;
+        pageSize: number;
+    }>;
+    payManagementFee(req: any, id: string, body: any): Promise<{
+        id: any;
+        sellerId: any;
+        sellerName: any;
+        feeDate: any;
+        totalSales: string;
+        feeAmount: string;
+        status: any;
+        paymentScreenshotUrl: any;
+        paidAt: any;
+        confirmedBy: any;
+        confirmedAt: any;
+        deadline: any;
+        createdAt: any;
+    }>;
+    getStats(req: any): Promise<{
+        totalProducts: number;
+        onSaleProducts: number;
+        todaySales: string;
+        todayOrders: number;
+        pendingFees: string;
+        pendingFeeCount: number;
+        totalSalesAll: string;
+    }>;
+    apply(req: any, dto: any): Promise<{
         success: boolean;
-        sellerStatus: string;
+        sellerStatus: "approved";
+    } | {
+        success: boolean;
+        sellerStatus: "pending";
     }>;
 }
-export {};

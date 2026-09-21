@@ -122,6 +122,10 @@ export const industries = pgTable("industries", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 50 }).notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
+  sellerId: uuid("seller_id"),
+  sellerName: varchar("seller_name", { length: 100 }),
+  sellerWechatQrcodeUrl: text("seller_wechat_qrcode_url"),
+  sellerAlipayQrcodeUrl: text("seller_alipay_qrcode_url"),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -132,6 +136,10 @@ export const productCategories = pgTable("product_categories", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 50 }).notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
+  sellerId: uuid("seller_id"),
+  sellerName: varchar("seller_name", { length: 100 }),
+  sellerWechatQrcodeUrl: text("seller_wechat_qrcode_url"),
+  sellerAlipayQrcodeUrl: text("seller_alipay_qrcode_url"),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -249,6 +257,8 @@ export const mallOrders = pgTable("mall_orders", {
   receiveName: varchar("receive_name", { length: 50 }),
   receivePhone: varchar("receive_phone", { length: 20 }),
   receiveAddress: text("receive_address"),
+  sellerId: uuid("seller_id"),
+  sellerName: varchar("seller_name", { length: 100 }),
   status: varchar("status", { length: 30 }).notNull().default('pending_payment'),
   paymentScreenshotUrl: text("payment_screenshot_url"),
   paymentConfirmedAt: customTimestamptz("payment_confirmed_at", { precision: 3 }),
@@ -268,6 +278,7 @@ export const mallOrders = pgTable("mall_orders", {
   uniqueIndex("mall_orders_order_no_key").on(table.orderNo),
   index("idx_mall_orders_user_id").on(table.userId),
   index("idx_mall_orders_status").on(table.status),
+  index("idx_mall_orders_seller_id").on(table.sellerId),
 ]);
 
 export const products = pgTable("products", {
@@ -287,6 +298,10 @@ export const products = pgTable("products", {
   detailImages: jsonb("detail_images").notNull().default('[]'),
   status: varchar("status", { length: 20 }).notNull().default('on_sale'),
   sortOrder: integer("sort_order").notNull().default(0),
+  sellerId: uuid("seller_id"),
+  sellerName: varchar("seller_name", { length: 100 }),
+  sellerWechatQrcodeUrl: text("seller_wechat_qrcode_url"),
+  sellerAlipayQrcodeUrl: text("seller_alipay_qrcode_url"),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -294,6 +309,7 @@ export const products = pgTable("products", {
 }, (table) => [
   index("idx_products_status").on(table.status),
   index("idx_products_category").on(table.category),
+  index("idx_products_seller_id").on(table.sellerId),
 ]);
 
 export const users = pgTable("users", {
@@ -335,6 +351,8 @@ export const users = pgTable("users", {
   directInviteCount: integer("direct_invite_count").notNull().default(0),
   teamTotalCount: integer("team_total_count").notNull().default(0),
   treeLevel: integer("tree_level").notNull().default(0),
+  isSeller: boolean("is_seller").notNull().default(false),
+  sellerStatus: varchar("seller_status", { length: 20 }).default("none"),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -486,4 +504,26 @@ export const friends = pgTable("friends", {
   uniqueIndex("friends_user_friend_key").on(table.userId, table.friendId),
   index("idx_friends_user_id").on(table.userId),
   index("idx_friends_friend_id").on(table.friendId),
+]);
+
+/** 商家管理费（佣金）表 */
+export const managementFees = pgTable("management_fees", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sellerId: uuid("seller_id").notNull(),
+  sellerName: varchar("seller_name", { length: 100 }),
+  feeDate: customTimestamptz("fee_date", { precision: 3 }).notNull(),
+  totalSales: numeric("total_sales").notNull().default('0'),
+  feeAmount: numeric("fee_amount").notNull().default('0'),
+  status: varchar("status", { length: 20 }).notNull().default('pending'),
+  paymentScreenshotUrl: text("payment_screenshot_url"),
+  paidAt: customTimestamptz("paid_at", { precision: 3 }),
+  confirmedBy: uuid("confirmed_by"),
+  confirmedAt: customTimestamptz("confirmed_at", { precision: 3 }),
+  deadline: customTimestamptz("deadline", { precision: 3 }),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
+}, (table) => [
+  index("idx_management_fees_seller_id").on(table.sellerId),
+  index("idx_management_fees_status").on(table.status),
+  index("idx_management_fees_fee_date").on(table.feeDate),
 ]);

@@ -25,6 +25,7 @@ const chat_rooms_module_1 = require("./modules/chat-rooms/chat-rooms.module");
 const chat_messages_module_1 = require("./modules/chat-messages/chat-messages.module");
 const friends_module_1 = require("./modules/friends/friends.module");
 const ocr_module_1 = require("./modules/ocr/ocr.module");
+const sellers_module_1 = require("./modules/sellers/sellers.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -51,6 +52,7 @@ exports.AppModule = AppModule = __decorate([
             chat_messages_module_1.ChatMessagesModule,
             friends_module_1.FriendsModule,
             ocr_module_1.OcrModule,
+            sellers_module_1.SellersModule,
         ],
         providers: [
             {

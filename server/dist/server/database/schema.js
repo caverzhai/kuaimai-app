@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.friends = exports.chatMicRequests = exports.chatMicSlots = exports.chatBlockedWords = exports.chatMessages = exports.chatRoomApplications = exports.chatRoomMembers = exports.chatRooms = exports.usersTable = exports.upgradeTasksTable = exports.teamRelationsTable = exports.productsTable = exports.productCategoriesTable = exports.platformQrcodesTable = exports.mallOrdersTable = exports.inviteRecordsTable = exports.industriesTable = exports.consultOrdersTable = exports.users = exports.products = exports.mallOrders = exports.consultOrders = exports.upgradeTasks = exports.teamRelations = exports.platformQrcodes = exports.inviteRecords = exports.productCategories = exports.industries = exports.fileAttachmentArray = exports.userProfileArray = exports.fileAttachment = exports.userProfile = exports.customTimestamptz = void 0;
+exports.managementFees = exports.friends = exports.chatMicRequests = exports.chatMicSlots = exports.chatBlockedWords = exports.chatMessages = exports.chatRoomApplications = exports.chatRoomMembers = exports.chatRooms = exports.usersTable = exports.upgradeTasksTable = exports.teamRelationsTable = exports.productsTable = exports.productCategoriesTable = exports.platformQrcodesTable = exports.mallOrdersTable = exports.inviteRecordsTable = exports.industriesTable = exports.consultOrdersTable = exports.users = exports.products = exports.mallOrders = exports.consultOrders = exports.upgradeTasks = exports.teamRelations = exports.platformQrcodes = exports.inviteRecords = exports.productCategories = exports.industries = exports.fileAttachmentArray = exports.userProfileArray = exports.fileAttachment = exports.userProfile = exports.customTimestamptz = void 0;
 exports.escapeLiteral = escapeLiteral;
 const drizzle_orm_1 = require("drizzle-orm");
 const pg_core_1 = require("drizzle-orm/pg-core");
@@ -100,6 +100,10 @@ exports.industries = (0, pg_core_1.pgTable)("industries", {
     id: (0, pg_core_1.uuid)("id").primaryKey().defaultRandom(),
     name: (0, pg_core_1.varchar)("name", { length: 50 }).notNull(),
     sortOrder: (0, pg_core_1.integer)("sort_order").notNull().default(0),
+    sellerId: (0, pg_core_1.uuid)("seller_id"),
+    sellerName: (0, pg_core_1.varchar)("seller_name", { length: 100 }),
+    sellerWechatQrcodeUrl: (0, pg_core_1.text)("seller_wechat_qrcode_url"),
+    sellerAlipayQrcodeUrl: (0, pg_core_1.text)("seller_alipay_qrcode_url"),
     createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
     updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 });
@@ -107,6 +111,10 @@ exports.productCategories = (0, pg_core_1.pgTable)("product_categories", {
     id: (0, pg_core_1.uuid)("id").primaryKey().defaultRandom(),
     name: (0, pg_core_1.varchar)("name", { length: 50 }).notNull(),
     sortOrder: (0, pg_core_1.integer)("sort_order").notNull().default(0),
+    sellerId: (0, pg_core_1.uuid)("seller_id"),
+    sellerName: (0, pg_core_1.varchar)("seller_name", { length: 100 }),
+    sellerWechatQrcodeUrl: (0, pg_core_1.text)("seller_wechat_qrcode_url"),
+    sellerAlipayQrcodeUrl: (0, pg_core_1.text)("seller_alipay_qrcode_url"),
     createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
     updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 });
@@ -206,6 +214,8 @@ exports.mallOrders = (0, pg_core_1.pgTable)("mall_orders", {
     receiveName: (0, pg_core_1.varchar)("receive_name", { length: 50 }),
     receivePhone: (0, pg_core_1.varchar)("receive_phone", { length: 20 }),
     receiveAddress: (0, pg_core_1.text)("receive_address"),
+    sellerId: (0, pg_core_1.uuid)("seller_id"),
+    sellerName: (0, pg_core_1.varchar)("seller_name", { length: 100 }),
     status: (0, pg_core_1.varchar)("status", { length: 30 }).notNull().default('pending_payment'),
     paymentScreenshotUrl: (0, pg_core_1.text)("payment_screenshot_url"),
     paymentConfirmedAt: (0, exports.customTimestamptz)("payment_confirmed_at", { precision: 3 }),
@@ -223,6 +233,7 @@ exports.mallOrders = (0, pg_core_1.pgTable)("mall_orders", {
     (0, pg_core_1.uniqueIndex)("mall_orders_order_no_key").on(table.orderNo),
     (0, pg_core_1.index)("idx_mall_orders_user_id").on(table.userId),
     (0, pg_core_1.index)("idx_mall_orders_status").on(table.status),
+    (0, pg_core_1.index)("idx_mall_orders_seller_id").on(table.sellerId),
 ]);
 exports.products = (0, pg_core_1.pgTable)("products", {
     id: (0, pg_core_1.uuid)("id").primaryKey().defaultRandom(),
@@ -235,11 +246,16 @@ exports.products = (0, pg_core_1.pgTable)("products", {
     detailImages: (0, pg_core_1.jsonb)("detail_images").notNull().default('[]'),
     status: (0, pg_core_1.varchar)("status", { length: 20 }).notNull().default('on_sale'),
     sortOrder: (0, pg_core_1.integer)("sort_order").notNull().default(0),
+    sellerId: (0, pg_core_1.uuid)("seller_id"),
+    sellerName: (0, pg_core_1.varchar)("seller_name", { length: 100 }),
+    sellerWechatQrcodeUrl: (0, pg_core_1.text)("seller_wechat_qrcode_url"),
+    sellerAlipayQrcodeUrl: (0, pg_core_1.text)("seller_alipay_qrcode_url"),
     createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
     updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 }, (table) => [
     (0, pg_core_1.index)("idx_products_status").on(table.status),
     (0, pg_core_1.index)("idx_products_category").on(table.category),
+    (0, pg_core_1.index)("idx_products_seller_id").on(table.sellerId),
 ]);
 exports.users = (0, pg_core_1.pgTable)("users", {
     id: (0, pg_core_1.uuid)("id").primaryKey().defaultRandom(),
@@ -280,6 +296,8 @@ exports.users = (0, pg_core_1.pgTable)("users", {
     directInviteCount: (0, pg_core_1.integer)("direct_invite_count").notNull().default(0),
     teamTotalCount: (0, pg_core_1.integer)("team_total_count").notNull().default(0),
     treeLevel: (0, pg_core_1.integer)("tree_level").notNull().default(0),
+    isSeller: (0, pg_core_1.boolean)("is_seller").notNull().default(false),
+    sellerStatus: (0, pg_core_1.varchar)("seller_status", { length: 20 }).default("none"),
     createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
     updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -407,5 +425,25 @@ exports.friends = (0, pg_core_1.pgTable)("friends", {
     (0, pg_core_1.uniqueIndex)("friends_user_friend_key").on(table.userId, table.friendId),
     (0, pg_core_1.index)("idx_friends_user_id").on(table.userId),
     (0, pg_core_1.index)("idx_friends_friend_id").on(table.friendId),
+]);
+exports.managementFees = (0, pg_core_1.pgTable)("management_fees", {
+    id: (0, pg_core_1.uuid)("id").primaryKey().defaultRandom(),
+    sellerId: (0, pg_core_1.uuid)("seller_id").notNull(),
+    sellerName: (0, pg_core_1.varchar)("seller_name", { length: 100 }),
+    feeDate: (0, exports.customTimestamptz)("fee_date", { precision: 3 }).notNull(),
+    totalSales: (0, pg_core_1.numeric)("total_sales").notNull().default('0'),
+    feeAmount: (0, pg_core_1.numeric)("fee_amount").notNull().default('0'),
+    status: (0, pg_core_1.varchar)("status", { length: 20 }).notNull().default('pending'),
+    paymentScreenshotUrl: (0, pg_core_1.text)("payment_screenshot_url"),
+    paidAt: (0, exports.customTimestamptz)("paid_at", { precision: 3 }),
+    confirmedBy: (0, pg_core_1.uuid)("confirmed_by"),
+    confirmedAt: (0, exports.customTimestamptz)("confirmed_at", { precision: 3 }),
+    deadline: (0, exports.customTimestamptz)("deadline", { precision: 3 }),
+    createdAt: (0, exports.customTimestamptz)("_created_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
+    updatedAt: (0, exports.customTimestamptz)("_updated_at", { precision: 3 }).notNull().default(sqlCURRENT_TIMESTAMP),
+}, (table) => [
+    (0, pg_core_1.index)("idx_management_fees_seller_id").on(table.sellerId),
+    (0, pg_core_1.index)("idx_management_fees_status").on(table.status),
+    (0, pg_core_1.index)("idx_management_fees_fee_date").on(table.feeDate),
 ]);
 //# sourceMappingURL=schema.js.map

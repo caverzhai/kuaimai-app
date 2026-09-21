@@ -364,6 +364,27 @@ export const MALL_ORDER_STATUS_NAMES: Record<string, string> = {
   cancelled: '已取消',
 };
 
+export const PRODUCT_STATUS = {
+  ON_SALE: 'on_sale',
+  OFF_SHELF: 'off_shelf',
+  WAREHOUSE: 'warehouse',
+} as const;
+
+export const MANAGEMENT_FEE_STATUS = {
+  PENDING: 'pending',
+  PAID: 'paid',
+  CONFIRMED: 'confirmed',
+  OVERDUE: 'overdue',
+} as const;
+
+export const SELLER_STATUS = {
+  NONE: 'none',
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+} as const;
+
+
 export const CONSULT_ORDER_STATUS = {
   PENDING_PAYMENT: 'pending_payment',
   PENDING_CONFIRM: 'pending_confirm',

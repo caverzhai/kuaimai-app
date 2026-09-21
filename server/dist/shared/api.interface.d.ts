@@ -311,6 +311,23 @@ export declare const MALL_ORDER_STATUS: {
     readonly CANCELLED: "cancelled";
 };
 export declare const MALL_ORDER_STATUS_NAMES: Record<string, string>;
+export declare const PRODUCT_STATUS: {
+    readonly ON_SALE: "on_sale";
+    readonly OFF_SHELF: "off_shelf";
+    readonly WAREHOUSE: "warehouse";
+};
+export declare const MANAGEMENT_FEE_STATUS: {
+    readonly PENDING: "pending";
+    readonly PAID: "paid";
+    readonly CONFIRMED: "confirmed";
+    readonly OVERDUE: "overdue";
+};
+export declare const SELLER_STATUS: {
+    readonly NONE: "none";
+    readonly PENDING: "pending";
+    readonly APPROVED: "approved";
+    readonly REJECTED: "rejected";
+};
 export declare const CONSULT_ORDER_STATUS: {
     readonly PENDING_PAYMENT: "pending_payment";
     readonly PENDING_CONFIRM: "pending_confirm";

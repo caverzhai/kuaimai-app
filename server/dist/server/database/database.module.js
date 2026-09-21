@@ -126,6 +126,38 @@ let DatabaseModule = class DatabaseModule {
             console.log('[Migration] chat_rooms 定时字段已确保存在');
             await this.db.execute((0, drizzle_orm_1.sql) `CREATE INDEX IF NOT EXISTS idx_chat_messages_expires_at ON chat_messages(expires_at)`);
             await this.db.execute((0, drizzle_orm_1.sql) `CREATE INDEX IF NOT EXISTS idx_chat_messages_room_id ON chat_messages(room_id)`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_seller boolean NOT NULL DEFAULT false`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE users ADD COLUMN IF NOT EXISTS seller_status varchar(20) DEFAULT 'none'`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_id uuid`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_name varchar(100)`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_wechat_qrcode_url text`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE products ADD COLUMN IF NOT EXISTS seller_alipay_qrcode_url text`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE mall_orders ADD COLUMN IF NOT EXISTS seller_id uuid`);
+            await this.db.execute((0, drizzle_orm_1.sql) `ALTER TABLE mall_orders ADD COLUMN IF NOT EXISTS seller_name varchar(100)`);
+            await this.db.execute((0, drizzle_orm_1.sql) `CREATE INDEX IF NOT EXISTS idx_products_seller_id ON products(seller_id)`);
+            await this.db.execute((0, drizzle_orm_1.sql) `CREATE INDEX IF NOT EXISTS idx_mall_orders_seller_id ON mall_orders(seller_id)`);
+            await this.db.execute((0, drizzle_orm_1.sql) `
+        CREATE TABLE IF NOT EXISTS management_fees (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          seller_id uuid NOT NULL,
+          seller_name varchar(100),
+          fee_date timestamptz(3) NOT NULL,
+          total_sales numeric NOT NULL DEFAULT 0,
+          fee_amount numeric NOT NULL DEFAULT 0,
+          status varchar(20) NOT NULL DEFAULT 'pending',
+          payment_screenshot_url text,
+          paid_at timestamptz(3),
+          confirmed_by uuid,
+          confirmed_at timestamptz(3),
+          deadline timestamptz(3),
+          _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+            await this.db.execute((0, drizzle_orm_1.sql) `CREATE INDEX IF NOT EXISTS idx_management_fees_seller_id ON management_fees(seller_id)`);
+            await this.db.execute((0, drizzle_orm_1.sql) `CREATE INDEX IF NOT EXISTS idx_management_fees_status ON management_fees(status)`);
+            await this.db.execute((0, drizzle_orm_1.sql) `CREATE INDEX IF NOT EXISTS idx_management_fees_fee_date ON management_fees(fee_date)`);
+            console.log('[Migration] 商家相关字段和管理费表已确保存在');
         }
         catch (err) {
             console.error('[Migration] 迁移失败', err);

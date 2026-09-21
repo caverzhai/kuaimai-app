@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TASK_TYPE = exports.TASK_STATUS = exports.CONSULT_ORDER_STATUS_NAMES = exports.CONSULT_ORDER_STATUS = exports.MALL_ORDER_STATUS_NAMES = exports.MALL_ORDER_STATUS = exports.LEVEL_LAYERS = exports.LEVEL_NAMES = exports.LEVELS = void 0;
+exports.TASK_TYPE = exports.TASK_STATUS = exports.CONSULT_ORDER_STATUS_NAMES = exports.CONSULT_ORDER_STATUS = exports.SELLER_STATUS = exports.MANAGEMENT_FEE_STATUS = exports.PRODUCT_STATUS = exports.MALL_ORDER_STATUS_NAMES = exports.MALL_ORDER_STATUS = exports.LEVEL_LAYERS = exports.LEVEL_NAMES = exports.LEVELS = void 0;
 exports.LEVELS = {
     JUNIOR: 'junior',
     LEVEL_4: 'level_4',
@@ -39,6 +39,23 @@ exports.MALL_ORDER_STATUS_NAMES = {
     pending_delivery: '待收货',
     completed: '已完成',
     cancelled: '已取消',
+};
+exports.PRODUCT_STATUS = {
+    ON_SALE: 'on_sale',
+    OFF_SHELF: 'off_shelf',
+    WAREHOUSE: 'warehouse',
+};
+exports.MANAGEMENT_FEE_STATUS = {
+    PENDING: 'pending',
+    PAID: 'paid',
+    CONFIRMED: 'confirmed',
+    OVERDUE: 'overdue',
+};
+exports.SELLER_STATUS = {
+    NONE: 'none',
+    PENDING: 'pending',
+    APPROVED: 'approved',
+    REJECTED: 'rejected',
 };
 exports.CONSULT_ORDER_STATUS = {
     PENDING_PAYMENT: 'pending_payment',

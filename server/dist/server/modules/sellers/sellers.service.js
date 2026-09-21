@@ -16,9 +16,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SellersService = void 0;
 const common_1 = require("@nestjs/common");
 const drizzle_orm_1 = require("drizzle-orm");
+const common_2 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const schema_1 = require("../../database/schema");
 const api_interface_1 = require("../../../shared/api.interface");
+const MANAGEMENT_FEE_RATE = 0.008;
 let SellersService = SellersService_1 = class SellersService {
     db;
     logger = new common_1.Logger(SellersService_1.name);
@@ -35,6 +37,17 @@ let SellersService = SellersService_1 = class SellersService {
             throw new common_1.ForbiddenException('您不是已通过审核的商家');
         }
         return user;
+    }
+    beijingNow() {
+        const bj = new Date(Date.now() + 8 * 3600 * 1000);
+        return {
+            year: bj.getUTCFullYear(),
+            month0: bj.getUTCMonth(),
+            date: bj.getUTCDate(),
+        };
+    }
+    bjMidnight(year, month0, date) {
+        return new Date(Date.UTC(year, month0, date, 0, 0, 0) - 8 * 3600 * 1000);
     }
     toProductInfo(row) {
         return {
@@ -55,6 +68,36 @@ let SellersService = SellersService_1 = class SellersService {
             createdAt: row.createdAt.toISOString(),
         };
     }
+    toOrderInfo(order) {
+        return {
+            id: order.id,
+            orderNo: order.orderNo,
+            userId: order.userId,
+            productId: order.productId,
+            productName: order.productName,
+            productImage: order.productImage ?? undefined,
+            price: String(order.price),
+            quantity: order.quantity,
+            totalAmount: String(order.totalAmount),
+            receiveName: order.receiveName ?? undefined,
+            receivePhone: order.receivePhone ?? undefined,
+            receiveAddress: order.receiveAddress ?? undefined,
+            sellerId: order.sellerId ?? undefined,
+            sellerName: order.sellerName ?? undefined,
+            status: order.status,
+            paymentScreenshotUrl: order.paymentScreenshotUrl ?? undefined,
+            paymentConfirmedAt: order.paymentConfirmedAt ? order.paymentConfirmedAt.toISOString() : undefined,
+            logisticsCompany: order.logisticsCompany ?? undefined,
+            logisticsNo: order.logisticsNo ?? undefined,
+            shippedAt: order.shippedAt ? order.shippedAt.toISOString() : undefined,
+            deliveredAt: order.deliveredAt ? order.deliveredAt.toISOString() : undefined,
+            cancelReason: order.cancelReason ?? undefined,
+            cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : undefined,
+            autoConfirmDeadline: order.autoConfirmDeadline ? order.autoConfirmDeadline.toISOString() : undefined,
+            autoDeliveryDeadline: order.autoDeliveryDeadline ? order.autoDeliveryDeadline.toISOString() : undefined,
+            createdAt: order.createdAt.toISOString(),
+        };
+    }
     toFeeInfo(row) {
         return {
             id: row.id,
@@ -71,17 +114,6 @@ let SellersService = SellersService_1 = class SellersService {
             deadline: row.deadline ? row.deadline.toISOString() : undefined,
             createdAt: row.createdAt.toISOString(),
         };
-    }
-    beijingNow() {
-        const bj = new Date(Date.now() + 8 * 3600 * 1000);
-        return {
-            year: bj.getUTCFullYear(),
-            month0: bj.getUTCMonth(),
-            date: bj.getUTCDate(),
-        };
-    }
-    bjMidnight(year, month0, date) {
-        return new Date(Date.UTC(year, month0, date, 0, 0, 0) - 8 * 3600 * 1000);
     }
     async getSellerProducts(sellerId, page, pageSize, status) {
         await this.assertApprovedSeller(sellerId);
@@ -149,12 +181,10 @@ let SellersService = SellersService_1 = class SellersService {
             patch.category = dto.category;
         if (dto.spec !== undefined)
             patch.spec = dto.spec;
-        if (dto.mainImages !== undefined) {
+        if (dto.mainImages !== undefined)
             patch.mainImages = dto.mainImages;
-        }
-        if (dto.detailImages !== undefined) {
+        if (dto.detailImages !== undefined)
             patch.detailImages = dto.detailImages;
-        }
         if (dto.sortOrder !== undefined)
             patch.sortOrder = dto.sortOrder;
         if (dto.sellerWechatQrcodeUrl !== undefined)
@@ -183,7 +213,9 @@ let SellersService = SellersService_1 = class SellersService {
         if (product.status === api_interface_1.PRODUCT_STATUS.WAREHOUSE) {
             throw new common_1.BadRequestException('违规下架商品不可自行恢复，请联系管理员');
         }
-        const nextStatus = product.status === api_interface_1.PRODUCT_STATUS.ON_SALE ? api_interface_1.PRODUCT_STATUS.OFF_SHELF : api_interface_1.PRODUCT_STATUS.ON_SALE;
+        const nextStatus = product.status === api_interface_1.PRODUCT_STATUS.ON_SALE
+            ? api_interface_1.PRODUCT_STATUS.OFF_SHELF
+            : api_interface_1.PRODUCT_STATUS.ON_SALE;
         const updated = await this.db
             .update(schema_1.products)
             .set({ status: nextStatus })
@@ -255,42 +287,6 @@ let SellersService = SellersService_1 = class SellersService {
         this.logger.log(`商家发货: sellerId=${sellerId}, orderId=${orderId}`);
         return this.toOrderInfo(updated[0]);
     }
-    toOrderInfo(order) {
-        return {
-            id: order.id,
-            orderNo: order.orderNo,
-            userId: order.userId,
-            productId: order.productId,
-            productName: order.productName,
-            productImage: order.productImage ?? undefined,
-            price: String(order.price),
-            quantity: order.quantity,
-            totalAmount: String(order.totalAmount),
-            receiveName: order.receiveName ?? undefined,
-            receivePhone: order.receivePhone ?? undefined,
-            receiveAddress: order.receiveAddress ?? undefined,
-            sellerId: order.sellerId ?? undefined,
-            sellerName: order.sellerName ?? undefined,
-            status: order.status,
-            paymentScreenshotUrl: order.paymentScreenshotUrl ?? undefined,
-            paymentConfirmedAt: order.paymentConfirmedAt
-                ? order.paymentConfirmedAt.toISOString()
-                : undefined,
-            logisticsCompany: order.logisticsCompany ?? undefined,
-            logisticsNo: order.logisticsNo ?? undefined,
-            shippedAt: order.shippedAt ? order.shippedAt.toISOString() : undefined,
-            deliveredAt: order.deliveredAt ? order.deliveredAt.toISOString() : undefined,
-            cancelReason: order.cancelReason ?? undefined,
-            cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : undefined,
-            autoConfirmDeadline: order.autoConfirmDeadline
-                ? order.autoConfirmDeadline.toISOString()
-                : undefined,
-            autoDeliveryDeadline: order.autoDeliveryDeadline
-                ? order.autoDeliveryDeadline.toISOString()
-                : undefined,
-            createdAt: order.createdAt.toISOString(),
-        };
-    }
     async getSellerManagementFees(sellerId, page, pageSize, status) {
         await this.assertApprovedSeller(sellerId);
         const conditions = [(0, drizzle_orm_1.eq)(schema_1.managementFees.sellerId, sellerId)];
@@ -341,6 +337,77 @@ let SellersService = SellersService_1 = class SellersService {
         this.logger.log(`商家支付管理费: sellerId=${sellerId}, feeId=${feeId}`);
         return this.toFeeInfo(updated[0]);
     }
+    async generateDailyManagementFees() {
+        const { year, month0, date } = this.beijingNow();
+        const todayStart = this.bjMidnight(year, month0, date);
+        const yesterdayStart = new Date(todayStart.getTime() - 24 * 3600 * 1000);
+        const feeDate = yesterdayStart;
+        this.logger.log(`开始生成昨日管理费: feeDate=${feeDate.toISOString()}, 费率=${MANAGEMENT_FEE_RATE * 100}%`);
+        const soldStatuses = [
+            api_interface_1.MALL_ORDER_STATUS.PENDING_SHIPMENT,
+            api_interface_1.MALL_ORDER_STATUS.PENDING_DELIVERY,
+            api_interface_1.MALL_ORDER_STATUS.COMPLETED,
+        ];
+        const sellerSales = await this.db
+            .select({
+            sellerId: schema_1.mallOrders.sellerId,
+            sellerName: schema_1.mallOrders.sellerName,
+            totalSales: (0, drizzle_orm_1.sql) `COALESCE(SUM(${schema_1.mallOrders.totalAmount}), 0)`,
+        })
+            .from(schema_1.mallOrders)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.gte)(schema_1.mallOrders.paymentConfirmedAt, yesterdayStart), (0, drizzle_orm_1.lt)(schema_1.mallOrders.paymentConfirmedAt, todayStart), (0, drizzle_orm_1.inArray)(schema_1.mallOrders.status, soldStatuses)))
+            .groupBy(schema_1.mallOrders.sellerId, schema_1.mallOrders.sellerName);
+        let generatedCount = 0;
+        for (const sale of sellerSales) {
+            if (!sale.sellerId)
+                continue;
+            const totalSales = Number(sale.totalSales ?? 0);
+            if (totalSales <= 0)
+                continue;
+            const feeAmount = Math.round(totalSales * MANAGEMENT_FEE_RATE * 100) / 100;
+            const existing = await this.db
+                .select({ count: (0, drizzle_orm_1.count)() })
+                .from(schema_1.managementFees)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.managementFees.sellerId, sale.sellerId), (0, drizzle_orm_1.eq)(schema_1.managementFees.feeDate, feeDate)));
+            if (Number(existing[0]?.count ?? 0) > 0) {
+                this.logger.log(`管理费已存在，跳过: sellerId=${sale.sellerId}, feeDate=${feeDate.toISOString()}`);
+                continue;
+            }
+            const deadline = new Date(todayStart.getTime() + 12 * 3600 * 1000);
+            await this.db.insert(schema_1.managementFees).values({
+                sellerId: sale.sellerId,
+                sellerName: sale.sellerName ?? null,
+                feeDate,
+                totalSales,
+                feeAmount,
+                status: api_interface_1.MANAGEMENT_FEE_STATUS.PENDING,
+                deadline,
+            });
+            generatedCount++;
+            this.logger.log(`生成管理费: sellerId=${sale.sellerId}, totalSales=${totalSales}, feeAmount=${feeAmount}`);
+        }
+        this.logger.log(`昨日管理费生成完成，共生成 ${generatedCount} 条`);
+        return { generatedCount, feeDate: feeDate.toISOString() };
+    }
+    async autoWarehouseOverdueFees() {
+        const now = new Date();
+        const overdueFees = await this.db
+            .select()
+            .from(schema_1.managementFees)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.managementFees.status, api_interface_1.MANAGEMENT_FEE_STATUS.PENDING), (0, drizzle_orm_1.lt)(schema_1.managementFees.deadline, now)));
+        let warehouseCount = 0;
+        for (const fee of overdueFees) {
+            const updated = await this.db
+                .update(schema_1.products)
+                .set({ status: api_interface_1.PRODUCT_STATUS.WAREHOUSE })
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.products.sellerId, fee.sellerId), (0, drizzle_orm_1.eq)(schema_1.products.status, api_interface_1.PRODUCT_STATUS.ON_SALE)))
+                .returning();
+            warehouseCount += updated.length;
+            this.logger.log(`超时未付管理费，商品下架: sellerId=${fee.sellerId}, 下架商品数=${updated.length}`);
+        }
+        this.logger.log(`超时管理费检查完成，共下架 ${warehouseCount} 个商品`);
+        return { warehouseCount };
+    }
     async getSellerStats(sellerId) {
         await this.assertApprovedSeller(sellerId);
         const { year, month0, date } = this.beijingNow();
@@ -352,10 +419,7 @@ let SellersService = SellersService_1 = class SellersService {
             api_interface_1.MALL_ORDER_STATUS.COMPLETED,
         ];
         const [totalProductsRow, onSaleRow, todaySalesRow, todayOrdersRow, pendingFeeRow, totalSalesRow] = await Promise.all([
-            this.db
-                .select({ count: (0, drizzle_orm_1.count)() })
-                .from(schema_1.products)
-                .where((0, drizzle_orm_1.eq)(schema_1.products.sellerId, sellerId)),
+            this.db.select({ count: (0, drizzle_orm_1.count)() }).from(schema_1.products).where((0, drizzle_orm_1.eq)(schema_1.products.sellerId, sellerId)),
             this.db
                 .select({ count: (0, drizzle_orm_1.count)() })
                 .from(schema_1.products)
@@ -419,7 +483,7 @@ let SellersService = SellersService_1 = class SellersService {
 exports.SellersService = SellersService;
 exports.SellersService = SellersService = SellersService_1 = __decorate([
     (0, common_1.Injectable)(),
-    __param(0, (0, common_1.Inject)(database_module_1.DRIZZLE_DATABASE)),
+    __param(0, (0, common_2.Inject)(database_module_1.DRIZZLE_DATABASE)),
     __metadata("design:paramtypes", [Object])
 ], SellersService);
 //# sourceMappingURL=sellers.service.js.map
