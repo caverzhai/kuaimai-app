@@ -140,13 +140,13 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   // 静态文件服务（版本信息、APK下载、前端静态文件等）
-  // 使用多种方式计算路径，确保在不同环境下都能正确找到 public 目录
+  // 优先使用构建生成的 dist/public 目录（确保APK是最新版本）
   const possiblePublicPaths = [
-    path.join(process.cwd(), 'server', 'public'), // /app/server/public (Railway 实际路径!)
+    path.join(process.cwd(), 'server', 'dist', 'public'), // /app/server/dist/public (构建生成，优先!)
     path.join(process.cwd(), 'dist', 'public'), // /app/dist/public
-    path.join(process.cwd(), 'server', 'dist', 'public'), // /app/server/dist/public
-    path.join(__dirname, '..', '..', '..', 'public'), // /app/server/public
+    path.join(process.cwd(), 'server', 'public'), // /app/server/public (可能有Volume挂载的旧文件)
     path.join(__dirname, '..', '..', 'public'), // /app/server/dist/public
+    path.join(__dirname, '..', '..', '..', 'public'), // /app/server/public
   ];
   
   // 同时提供所有存在的 public 目录，确保新旧上传的图片都能访问
