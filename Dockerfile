@@ -13,7 +13,7 @@ RUN find /app -name "*.apk" -exec ls -lh {} \; 2>/dev/null || echo "未找到APK
 # 验证version.json（强制刷新缓存）
 RUN echo "=== version.json 内容 ===" && cat server/public/version.json && echo "=== version.json 结束 ==="
 RUN echo "构建时间: $(date)"
-RUN echo "强制重新构建标记: v2.22.3"
+RUN echo "强制重新构建标记: v2.28.0"
 
 # 安装依赖并构建
 WORKDIR /app/server
