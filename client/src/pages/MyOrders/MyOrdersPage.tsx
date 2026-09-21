@@ -15,6 +15,8 @@ import {
   MapPin,
   Phone,
   User,
+  Truck,
+  Copy,
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useAuth } from '@/contexts/AuthContext';
@@ -39,6 +41,48 @@ const TABS = [
 ];
 
 const PAGE_SIZE = 10;
+
+// 快递公司 -> 快递100 查询代码
+const KUAIDI100_CODES: Record<string, string> = {
+  '顺丰速运': 'shunfeng',
+  '中通快递': 'zhongtong',
+  '圆通速递': 'yuantong',
+  '韵达快递': 'yunda',
+  '申通快递': 'shentong',
+  '京东物流': 'jd',
+  '邮政EMS': 'ems',
+  '极兔速递': 'jtex',
+  '德邦快递': 'debangkuaidi',
+};
+
+async function copyLogisticsNo(no: string) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(no);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = no;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    alert('物流单号已复制：' + no);
+  } catch {
+    alert('复制失败，请手动记录单号：' + no);
+  }
+}
+
+function trackLogistics(company: string, no: string) {
+  const code = KUAIDI100_CODES[company];
+  const url = code
+    ? `https://www.kuaidi100.com/chaxun?com=${code}&nu=${encodeURIComponent(no)}`
+    : 'https://www.kuaidi100.com/';
+  const w = window.open(url, '_system');
+  if (!w) window.open(url, '_blank');
+}
 
 export default function MyOrdersPage() {
   const navigate = useNavigate();
@@ -359,15 +403,54 @@ export default function MyOrdersPage() {
                               {order.receiveAddress || '-'}
                             </span>
                           </div>
-                          {order.logisticsCompany && (
-                            <div className="flex items-start gap-2 text-xs">
-                              <PackageCheck className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
-                              <span className="text-gray-600">
-                                {order.logisticsCompany}：
-                                {order.logisticsNo || '-'}
-                              </span>
-                            </div>
-                          )}
+                          {order.logisticsCompany &&
+                            (order.logisticsCompany === '到店自提' ||
+                              order.logisticsCompany === '无需物流') && (
+                              <div className="flex items-start gap-2 text-xs">
+                                <PackageCheck className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                <span className="text-gray-600">{order.logisticsCompany}</span>
+                              </div>
+                            )}
+                          {order.logisticsCompany &&
+                            order.logisticsCompany !== '到店自提' &&
+                            order.logisticsCompany !== '无需物流' &&
+                            order.logisticsNo && (
+                              <div className="mt-1 w-full rounded-lg bg-blue-50 p-2">
+                                <div className="flex items-start gap-2 text-xs">
+                                  <Truck className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                                  <div className="flex-1">
+                                    <div className="font-medium text-blue-700">
+                                      {order.logisticsCompany}
+                                    </div>
+                                    <div className="text-blue-600 break-all">
+                                      运单号：{order.logisticsNo}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2 mt-2 pl-5">
+                                  <button
+                                    type="button"
+                                    onClick={() => copyLogisticsNo(order.logisticsNo || '')}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-full bg-white border border-blue-200 text-blue-600"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                    复制单号
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      trackLogistics(
+                                        order.logisticsCompany || '',
+                                        order.logisticsNo || '',
+                                      )
+                                    }
+                                    className="px-2.5 py-1 text-[11px] rounded-full bg-blue-500 text-white"
+                                  >
+                                    查询物流
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           {order.paymentConfirmedAt && (
                             <div className="flex items-start gap-2 text-xs">
                               <CheckCircle2 className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0" />

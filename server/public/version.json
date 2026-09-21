@@ -1,8 +1,8 @@
 {
-  "version": "2.33.0",
-  "versionCode": 137,
+  "version": "2.34.0",
+  "versionCode": 138,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "1.修复APP自动更新下载安装（改为安卓原生下载，点击立即更新后自动下载并弹出安装）；2.新增卖家推广费功能（每日零点按昨日成交额8%生成，12点前未结算商品自动下架）。",
+  "releaseNotes": "1.修复卖家发货按钮被底部导航栏遮挡；2.卖家发货物流公司改为下拉选择（与平台一致）；3.买家订单物流信息升级：显示快递公司和运单号，支持一键复制单号、查询物流轨迹。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 137
+  "forceUpdateBelowCode": 138
 }

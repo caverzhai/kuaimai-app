@@ -31,6 +31,19 @@ const STATUS_NAMES: Record<string, string> = {
 
 const FILTERS = ['', 'pending_review', 'pending_shipment', 'pending_delivery', 'completed'];
 
+// 快递公司（与平台发货保持一致，卖家选择"快递物流"时下拉选择，避免手填不规范）
+const EXPRESS_COMPANIES = [
+  '顺丰速运',
+  '中通快递',
+  '圆通速递',
+  '韵达快递',
+  '申通快递',
+  '京东物流',
+  '邮政EMS',
+  '极兔速递',
+  '德邦快递',
+];
+
 export default function SellerOrdersPage() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<MallOrderInfo[]>([]);
@@ -107,7 +120,10 @@ export default function SellerOrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-28">
+    <div
+      className="min-h-screen bg-gray-50 pb-32"
+      style={{ paddingBottom: 'calc(8rem + env(safe-area-inset-bottom))' }}
+    >
       {/* 顶部导航 */}
       <div className="bg-white shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-3 px-4 py-3">
@@ -232,11 +248,12 @@ export default function SellerOrdersPage() {
       {/* 发货弹窗 */}
       {shipOrder && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50"
+          className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[9999]"
           onClick={() => setShipOrder(null)}
         >
           <div
-            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 max-h-[85vh] overflow-y-auto"
+            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md px-5 pt-5 max-h-[88vh] overflow-y-auto"
+            style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-bold mb-4">订单发货</h2>
@@ -269,12 +286,18 @@ export default function SellerOrdersPage() {
               <>
                 <div className="mb-3">
                   <div className="text-sm font-medium text-gray-700 mb-1">物流公司</div>
-                  <input
+                  <select
                     value={logisticsCompany}
                     onChange={(e) => setLogisticsCompany(e.target.value)}
-                    placeholder="如：顺丰、中通、圆通"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                  />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">请选择物流公司</option>
+                    {EXPRESS_COMPANIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="mb-4">
                   <div className="text-sm font-medium text-gray-700 mb-1">物流单号</div>
