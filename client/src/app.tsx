@@ -20,6 +20,7 @@ import FinancePage from './pages/Finance/FinancePage';
 import SupplementInviterPage from './pages/SupplementInviter/SupplementInviter';
 import AdminPage from './pages/Admin/AdminPage';
 import ChatRoomDetailPage from './pages/ChatRoom/ChatRoomDetailPage';
+import SellerOrdersPage from './pages/Seller/SellerOrdersPage';
 import ForgotPasswordPage from './pages/ForgotPassword/ForgotPasswordPage';
 import NotFound from './pages/NotFound/NotFound';
 
@@ -56,6 +57,7 @@ const RoutesComponent = () => {
           <Route path="order-confirm/:productId" element={<MallOrderConfirmPage />} />
           <Route path="consult-orders" element={<ConsultOrdersPage />} />
           <Route path="admin" element={<AdminPage />} />
+          <Route path="seller/orders" element={<SellerOrdersPage />} />
         </Route>
         <Route path="chat-room/:roomId" element={<ChatRoomDetailPage />} />
         <Route path="login" element={<LoginPage />} />
