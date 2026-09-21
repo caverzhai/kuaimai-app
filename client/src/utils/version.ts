@@ -1,6 +1,6 @@
 ﻿// APP version config
-export const APP_VERSION = '2.32.0';
-export const APP_VERSION_CODE = 136;
+export const APP_VERSION = '2.33.0';
+export const APP_VERSION_CODE = 137;
 
 // Version check URL (deployed to backend static file)
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
@@ -63,35 +63,51 @@ export async function checkUpdate(): Promise<VersionInfo | null> {
 // Download and install update
 export function downloadAndInstall(versionInfo: VersionInfo): boolean {
   try {
-    // If AppUpdate interface is injected, call directly
+    // 1) 原生 APP：优先调用 AppUpdateBridge（DownloadManager 下载 + 系统安装器）
     if (window.AppUpdate && typeof window.AppUpdate.downloadAndInstall === 'function') {
-      const result = JSON.parse(
-        window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version)
-      );
-      if (result.success === true) return true;
+      try {
+        const result = JSON.parse(
+          window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version)
+        );
+        if (result.success === true) return true;
+        // 原生返回需要先授予"安装未知应用"权限时，已自动跳转设置页，视为已处理
+        if (result.message && String(result.message).includes('未知应用')) {
+          return true;
+        }
+        console.warn('原生更新未成功启动:', result.message);
+        return false;
+      } catch (nativeErr) {
+        console.error('原生下载调用异常，尝试等待注入/降级:', nativeErr);
+      }
     }
-    // APP environment but interface not injected: poll wait for injection (max 3 seconds)
+
+    // 2) Capacitor 环境但桥尚未注入：轮询等待（最多 3 秒），仍失败则用系统浏览器打开
     if ((window as any).Capacitor) {
       let waitCount = 0;
       const waitForInject = setInterval(() => {
         waitCount++;
         if (window.AppUpdate && typeof window.AppUpdate.downloadAndInstall === 'function') {
           clearInterval(waitForInject);
-          window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version);
+          try {
+            window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version);
+          } catch {
+            window.open(versionInfo.downloadUrl, '_system');
+          }
         } else if (waitCount > 10) {
           clearInterval(waitForInject);
-          // Injection timeout, fallback to system browser
+          // 注入超时，降级到系统浏览器下载
           window.open(versionInfo.downloadUrl, '_system');
         }
       }, 300);
       return true;
     }
-    // Web environment, open download link
+
+    // 3) 纯 Web 环境：新窗口打开下载链接
     window.open(versionInfo.downloadUrl, '_blank');
     return true;
   } catch (error) {
     console.error('Failed to download update', error);
-    // Fallback: direct redirect
+    // 最终兜底：直接跳转
     window.location.href = versionInfo.downloadUrl;
     return true;
   }

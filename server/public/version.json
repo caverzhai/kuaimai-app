@@ -1,8 +1,8 @@
 {
-  "version": "2.32.0",
-  "versionCode": 136,
+  "version": "2.33.0",
+  "versionCode": 137,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "修复APP登录：原生网络异常时自动切换通道、放开跨域、兼容输入空格，并明确区分网络错误与密码错误提示。",
+  "releaseNotes": "1.修复APP自动更新下载安装（改为安卓原生下载，点击立即更新后自动下载并弹出安装）；2.新增卖家推广费功能（每日零点按昨日成交额8%生成，12点前未结算商品自动下架）。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 135
+  "forceUpdateBelowCode": 137
 }

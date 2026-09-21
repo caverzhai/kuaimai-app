@@ -2,21 +2,16 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install wget for downloading APK
-RUN apk add --no-cache wget
-
 # Cache bust to force rebuild
-ARG CACHEBUST=20260921163000
+ARG CACHEBUST=20260922060000
 RUN echo "Cache bust: $CACHEBUST"
 
-# Copy backend and shared code
+# Copy backend and shared code (includes local built APK and frontend dist)
 COPY server/ ./server/
 COPY shared/ ./shared/
 
-# Download latest APK from GitHub (overwrites COPY)
-RUN echo "=== Download latest APK ===" && \
-    wget -O server/public/download/kuaimai.apk "https://raw.githubusercontent.com/caverzhai/kuaimai-app/main/server/public/download/kuaimai.apk" && \
-    echo "APK downloaded, size: $(wc -c < server/public/download/kuaimai.apk) bytes"
+# Use local APK (already built at 2.32.0) instead of downloading from GitHub
+RUN echo "Using local APK, size: $(wc -c < server/public/download/kuaimai.apk) bytes"
 
 # Install dependencies and build
 WORKDIR /app/server
