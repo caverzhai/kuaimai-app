@@ -35,6 +35,7 @@ interface UpdateProductDTO {
   detailImages?: { url: string }[];
   status?: string;
   sortOrder?: number;
+  sellerId?: string;
 }
 
 @Injectable()
