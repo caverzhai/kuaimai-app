@@ -950,6 +950,16 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
         </div>
       )}
 
+      {/* 卖家订单入口（只有卖家身份可见） */}
+      {user?.isSeller && (
+        <button
+          onClick={() => navigate('/seller/orders')}
+          className="w-full py-3 bg-white border border-blue-100 text-blue-500 font-medium rounded-2xl shadow-sm hover:bg-blue-50 transition-colors inline-flex items-center justify-center gap-2 mb-3"
+        >
+          卖家订单管理
+        </button>
+      )}
+
       {/* 邀请码入口 */}
       <button
         onClick={() => navigate('/invite')}
