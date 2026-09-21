@@ -29,6 +29,8 @@ export interface UserInfo {
   address?: string;
   wechatId?: string;
   companyAuditStatus?: string;
+  isSeller?: boolean;
+  sellerStatus?: string;
   totalConsultIncome: string;
   thresholdBlocked: boolean;
   thresholdTriggeredAt?: string;

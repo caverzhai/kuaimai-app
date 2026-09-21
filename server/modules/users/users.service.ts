@@ -778,6 +778,8 @@ export class UsersService {
       address: user.address ?? undefined,
       wechatId: user.wechatId ?? undefined,
       companyAuditStatus: user.companyAuditStatus ?? undefined,
+      isSeller: (user as any).isSeller ?? false,
+      sellerStatus: (user as any).sellerStatus ?? undefined,
       totalConsultIncome: String(user.totalConsultIncome),
       thresholdBlocked: user.thresholdBlocked,
       thresholdTriggeredAt: user.thresholdTriggeredAt
