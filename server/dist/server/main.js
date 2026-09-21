@@ -207,6 +207,30 @@ async function bootstrap() {
     catch (e) {
         logger.error(`启动商城订单定时任务失败: ${e}`);
     }
+    try {
+        const { SellersService } = await Promise.resolve().then(() => require('./modules/sellers/sellers.service'));
+        const sellersService = app.get(SellersService);
+        setInterval(async () => {
+            try {
+                const nowBj = new Date(Date.now() + 8 * 3600 * 1000);
+                const bjHour = nowBj.getUTCHours();
+                const bjMinute = nowBj.getUTCMinutes();
+                if (bjHour === 0 && bjMinute < 5) {
+                    await sellersService.generateDailyManagementFees();
+                }
+                if (bjHour === 12 && bjMinute < 5) {
+                    await sellersService.autoWarehouseOverdueFees();
+                }
+            }
+            catch (e) {
+                logger.error(`商家管理费定时任务异常: ${e}`);
+            }
+        }, 60 * 1000);
+        logger.log('商家管理费定时任务已启动（每日0点生成0.8%佣金，12点超时自动下架）');
+    }
+    catch (e) {
+        logger.error(`启动商家管理费定时任务失败: ${e}`);
+    }
 }
 bootstrap();
 //# sourceMappingURL=main.js.map

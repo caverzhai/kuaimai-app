@@ -255,6 +255,33 @@ async function bootstrap() {
   } catch (e) {
     logger.error(`启动商城订单定时任务失败: ${e}`);
   }
+
+  // 启动定时任务：商家管理费（0.8%佣金）每日结算 + 超时未付自动下架
+  try {
+    const { SellersService } = await import('./modules/sellers/sellers.service');
+    const sellersService = app.get(SellersService);
+
+    setInterval(async () => {
+      try {
+        const nowBj = new Date(Date.now() + 8 * 3600 * 1000);
+        const bjHour = nowBj.getUTCHours();
+        const bjMinute = nowBj.getUTCMinutes();
+        // 北京时间0点0分-0点5分之间，生成昨日管理费（0.8%佣金）
+        if (bjHour === 0 && bjMinute < 5) {
+          await sellersService.generateDailyManagementFees();
+        }
+        // 北京时间12点0分-12点5分之间，检查超时未支付管理费，自动下架商品
+        if (bjHour === 12 && bjMinute < 5) {
+          await sellersService.autoWarehouseOverdueFees();
+        }
+      } catch (e) {
+        logger.error(`商家管理费定时任务异常: ${e}`);
+      }
+    }, 60 * 1000); // 每分钟执行一次
+    logger.log('商家管理费定时任务已启动（每日0点生成0.8%佣金，12点超时自动下架）');
+  } catch (e) {
+    logger.error(`启动商家管理费定时任务失败: ${e}`);
+  }
 }
 
 bootstrap();
