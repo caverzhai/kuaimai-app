@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -41,24 +42,44 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 立即注册原生HTTP桥接接口（必须在页面加载前注册）
-        try {
-            WebView webView = getBridge().getWebView();
-            if (webView != null) {
-                WebSettings webSettings = webView.getSettings();
-                webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-                webSettings.setJavaScriptEnabled(true);
-                webSettings.setDomStorageEnabled(true);
-                webSettings.setDatabaseEnabled(true);
+        // 延迟注册原生桥接接口，确保Bridge完全初始化
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    WebView webView = getBridge().getWebView();
+                    if (webView != null) {
+                        WebSettings webSettings = webView.getSettings();
+                        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                        webSettings.setJavaScriptEnabled(true);
+                        webSettings.setDomStorageEnabled(true);
+                        webSettings.setDatabaseEnabled(true);
 
-                // 注册原生 HTTP 桥接接口，完全绕过 WebView 的 CORS 限制
-                webView.addJavascriptInterface(new HttpBridge(), "NativeHttp");
-                // 注册 APP 更新桥接接口
-                webView.addJavascriptInterface(new AppUpdateBridge(), "AppUpdate");
+                        // 注册原生 HTTP 桥接接口，完全绕过 WebView 的 CORS 限制
+                        webView.addJavascriptInterface(new HttpBridge(), "NativeHttp");
+                        // 注册 APP 更新桥接接口
+                        webView.addJavascriptInterface(new AppUpdateBridge(), "AppUpdate");
+                        
+                        // 再次延迟确认（防止WebView重建）
+                        new Handler().postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                try {
+                                    WebView wv = getBridge().getWebView();
+                                    if (wv != null) {
+                                        wv.addJavascriptInterface(new AppUpdateBridge(), "AppUpdate");
+                                    }
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        }, 1000);
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
-        } catch (Exception e) {
-            // 忽略配置错误
-        }
+        }, 500);
 
         // 注册下载完成广播接收器（用成员变量持有，防止被GC回收）
         try {
