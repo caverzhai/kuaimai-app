@@ -1,21 +1,44 @@
 import { useEffect, useState } from 'react';
-import { checkUpdate, downloadAndInstall, type VersionInfo } from '../utils/version';
+
+const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
+const CURRENT_VERSION_CODE = 128; // 2.28.5
+
+interface VersionInfo {
+  version: string;
+  versionCode: number;
+  downloadUrl: string;
+  releaseNotes: string;
+  forceUpdate: boolean;
+}
 
 export default function GlobalUpdateCheck() {
   const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   useEffect(() => {
-    // APP启动时立即检查更新（不依赖登录）
+    // APP启动时立即检查更新（不依赖登录，不依赖native检测）
     const doCheck = async () => {
-      const info = await checkUpdate();
-      if (info) {
-        setUpdateInfo(info);
-        setShowUpdateModal(true);
+      try {
+        const response = await fetch(VERSION_CHECK_URL + '?nocache=' + Date.now(), { cache: 'no-cache' });
+        if (!response.ok) return;
+        const data = await response.json();
+        // 服务器版本高于当前版本就提示更新
+        if (data.versionCode > CURRENT_VERSION_CODE) {
+          setUpdateInfo(data);
+          setShowUpdateModal(true);
+        }
+      } catch (e) {
+        console.error('检查更新失败', e);
       }
     };
     doCheck();
   }, []);
+
+  const handleUpdate = () => {
+    if (!updateInfo) return;
+    // 直接打开下载链接
+    window.location.href = updateInfo.downloadUrl;
+  };
 
   if (!showUpdateModal || !updateInfo) return null;
 
@@ -51,7 +74,7 @@ export default function GlobalUpdateCheck() {
           {updateInfo.releaseNotes || '修复了一些问题，提升了体验'}
         </p>
         <button
-          onClick={() => downloadAndInstall(updateInfo)}
+          onClick={handleUpdate}
           style={{
             width: '100%',
             padding: '14px',
