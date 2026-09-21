@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import { MallOrdersService } from './mall-orders.service';
-import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '../../../shared/api.interface';
+import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '@shared/api.interface';
 export declare class MallOrdersController {
     private readonly mallOrdersService;
     constructor(mallOrdersService: MallOrdersService);

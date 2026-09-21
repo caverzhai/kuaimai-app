@@ -14,7 +14,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChatRoomsController = void 0;
 const common_1 = require("@nestjs/common");
-const auth_guard_1 = require("../../common/guards/auth.guard");
+const auth_guard_1 = require("@server/common/guards/auth.guard");
 const chat_rooms_service_1 = require("./chat-rooms.service");
 let ChatRoomsController = class ChatRoomsController {
     chatRoomsService;

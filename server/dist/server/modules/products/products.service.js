@@ -16,7 +16,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProductsService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
-const schema_1 = require("../../database/schema");
+const schema_1 = require("@server/database/schema");
 const drizzle_orm_1 = require("drizzle-orm");
 let ProductsService = ProductsService_1 = class ProductsService {
     db;

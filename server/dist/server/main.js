@@ -50,6 +50,10 @@ async function initDatabase() {
             await sql.unsafe(`
         ALTER TABLE mall_orders ADD COLUMN IF NOT EXISTS auto_delivery_deadline TIMESTAMP(3);
       `);
+            await sql.unsafe(`
+        ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP;
+        CREATE INDEX IF NOT EXISTS idx_chat_room_members_last_active ON chat_room_members(last_active_at);
+      `);
             try {
                 await sql.unsafe(`
           UPDATE users SET consultant_level = '初级' WHERE consultant_level LIKE '%件%' OR consultant_level LIKE '%middle%';

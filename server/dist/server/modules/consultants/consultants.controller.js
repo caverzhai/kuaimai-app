@@ -15,7 +15,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConsultantsController = void 0;
 const common_1 = require("@nestjs/common");
 const consultants_service_1 = require("./consultants.service");
-const auth_guard_1 = require("../../common/guards/auth.guard");
+const auth_guard_1 = require("@server/common/guards/auth.guard");
 let ConsultantsController = class ConsultantsController {
     consultantsService;
     constructor(consultantsService) {

@@ -8,8 +8,8 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AdminModule = void 0;
 const common_1 = require("@nestjs/common");
-const products_module_1 = require("../products/products.module");
-const upgrade_module_1 = require("../upgrade/upgrade.module");
+const products_module_1 = require("@server/modules/products/products.module");
+const upgrade_module_1 = require("@server/modules/upgrade/upgrade.module");
 const admin_controller_1 = require("./admin.controller");
 const finance_controller_1 = require("./finance.controller");
 const admin_service_1 = require("./admin.service");

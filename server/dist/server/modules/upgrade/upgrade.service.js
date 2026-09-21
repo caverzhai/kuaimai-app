@@ -17,10 +17,10 @@ exports.UpgradeService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const api_interface_1 = require("../../../shared/api.interface");
-const schema_1 = require("../../database/schema");
+const api_interface_1 = require("@shared/api.interface");
+const schema_1 = require("@server/database/schema");
 const common_2 = require("@nestjs/common");
-const auth_util_1 = require("../../common/utils/auth.util");
+const auth_util_1 = require("@server/common/utils/auth.util");
 const LEVEL_ORDER = [
     api_interface_1.LEVELS.JUNIOR,
     api_interface_1.LEVELS.LEVEL_4,

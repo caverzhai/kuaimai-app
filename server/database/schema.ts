@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 /* eslint-disable */
 /** auto generated, do not edit */
 import { sql } from 'drizzle-orm';
@@ -392,10 +392,12 @@ export const chatRoomMembers = pgTable("chat_room_members", {
   isMuted: boolean("is_muted").notNull().default(false),
   isBlocked: boolean("is_blocked").notNull().default(false),
   joinedAt: customTimestamptz("joined_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  lastActiveAt: customTimestamptz("last_active_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("chat_room_members_room_user_key").on(table.roomId, table.userId),
   index("idx_chat_room_members_room_id").on(table.roomId),
   index("idx_chat_room_members_user_id").on(table.userId),
+  index("idx_chat_room_members_last_active").on(table.lastActiveAt),
 ]);
 
 // 聊天室申请

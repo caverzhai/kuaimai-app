@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '../../../shared/api.interface';
+import type { MallOrderInfo, CreateMallOrderDTO, MallOrderListResponse, PaymentScreenshotDTO } from '@shared/api.interface';
 export declare class MallOrdersService {
     private readonly db;
     private readonly logger;

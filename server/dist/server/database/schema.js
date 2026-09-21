@@ -325,10 +325,12 @@ exports.chatRoomMembers = (0, pg_core_1.pgTable)("chat_room_members", {
     isMuted: (0, pg_core_1.boolean)("is_muted").notNull().default(false),
     isBlocked: (0, pg_core_1.boolean)("is_blocked").notNull().default(false),
     joinedAt: (0, exports.customTimestamptz)("joined_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
+    lastActiveAt: (0, exports.customTimestamptz)("last_active_at", { precision: 3 }).notNull().default((0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`),
 }, (table) => [
     (0, pg_core_1.uniqueIndex)("chat_room_members_room_user_key").on(table.roomId, table.userId),
     (0, pg_core_1.index)("idx_chat_room_members_room_id").on(table.roomId),
     (0, pg_core_1.index)("idx_chat_room_members_user_id").on(table.userId),
+    (0, pg_core_1.index)("idx_chat_room_members_last_active").on(table.lastActiveAt),
 ]);
 exports.chatRoomApplications = (0, pg_core_1.pgTable)("chat_room_applications", {
     id: (0, pg_core_1.uuid)("id").defaultRandom().primaryKey(),

@@ -1,7 +1,7 @@
 import type { Request } from 'express';
 import { AdminService } from './admin.service';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { ProductListResponse, ProductInfo, MallOrderListResponse, MallOrderInfo, ConsultOrderListResponse, UserInfo, PlatformQrcodeInfo, ReviewDTO, ShipDTO } from '../../../shared/api.interface';
+import type { ProductListResponse, ProductInfo, MallOrderListResponse, MallOrderInfo, ConsultOrderListResponse, UserInfo, PlatformQrcodeInfo, ReviewDTO, ShipDTO } from '@shared/api.interface';
 interface CreateProductBody {
     name: string;
     price: string;

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { DRIZZLE_DATABASE } from '../../database/database.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { eq, and, inArray, desc, sql } from 'drizzle-orm';
+import { eq, and, inArray, desc, sql, gte } from 'drizzle-orm';
 
 import {
   chatRooms,
@@ -90,8 +90,10 @@ export class ChatRoomsService {
 
     // 获取每个聊天室的在线人数和麦位信息
     const roomIds = rooms.map((r) => r.id);
+    // 只统计最近5分钟内活跃的用户为在线
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     const members = roomIds.length > 0
-      ? await this.db.select().from(chatRoomMembers).where(inArray(chatRoomMembers.roomId, roomIds))
+      ? await this.db.select().from(chatRoomMembers).where(and(inArray(chatRoomMembers.roomId, roomIds), gte(chatRoomMembers.lastActiveAt, fiveMinutesAgo)))
       : [];
     const mics = roomIds.length > 0
       ? await this.db.select().from(chatMicSlots).where(and(inArray(chatMicSlots.roomId, roomIds), eq(chatMicSlots.isActive, true)))
@@ -202,8 +204,13 @@ export class ChatRoomsService {
 
     if (!member && room.type === 'public') {
       // 公开聊天室自动加入
-      await this.db.insert(chatRoomMembers).values({ roomId, userId, role: 'member' });
-      member = { roomId, userId, role: 'member', isMuted: false, isBlocked: false } as any;
+      await this.db.insert(chatRoomMembers).values({ roomId, userId, role: 'member', lastActiveAt: new Date() });
+      member = { roomId, userId, role: 'member', isMuted: false, isBlocked: false, lastActiveAt: new Date() } as any;
+    } else if (member) {
+      // 更新用户最后活跃时间
+      await this.db.update(chatRoomMembers)
+        .set({ lastActiveAt: new Date() })
+        .where(and(eq(chatRoomMembers.roomId, roomId), eq(chatRoomMembers.userId, userId)));
     }
 
     if (!member) {
@@ -255,10 +262,11 @@ export class ChatRoomsService {
       throw new ForbiddenException('你不是该聊天室成员');
     }
 
-    // 获取所有成员（排除被拉黑的）
+    // 获取所有在线成员（最近5分钟内活跃，排除被拉黑的）
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     const members = await this.db.select().from(chatRoomMembers)
-      .where(and(eq(chatRoomMembers.roomId, roomId), eq(chatRoomMembers.isBlocked, false)))
-      .orderBy(desc(chatRoomMembers.joinedAt));
+      .where(and(eq(chatRoomMembers.roomId, roomId), eq(chatRoomMembers.isBlocked, false), gte(chatRoomMembers.lastActiveAt, fiveMinutesAgo)))
+      .orderBy(desc(chatRoomMembers.lastActiveAt));
 
     const memberUserIds = members.map((m) => m.userId);
     const memberUsers = memberUserIds.length > 0

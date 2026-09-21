@@ -3916,6 +3916,18 @@ export declare const chatRoomMembers: import("drizzle-orm/pg-core").PgTableWithC
             enumValues: undefined;
             baseColumn: never;
         }, {}, {}>;
+        lastActiveAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "last_active_at";
+            tableName: "chat_room_members";
+            dataType: "custom";
+            columnType: "PgCustomColumn";
+            data: Date;
+            driverParam: string;
+            notNull: true;
+            hasDefault: true;
+            enumValues: undefined;
+            baseColumn: never;
+        }, {}, {}>;
     };
     dialect: "pg";
 }>;

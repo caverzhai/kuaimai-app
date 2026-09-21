@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { ConsultOrderInfo, CreateConsultOrderDTO, ConsultOrderListResponse, PaymentScreenshotDTO, WorkScreenshotDTO, ReviewDTO } from '../../../shared/api.interface';
+import type { ConsultOrderInfo, CreateConsultOrderDTO, ConsultOrderListResponse, PaymentScreenshotDTO, WorkScreenshotDTO, ReviewDTO } from '@shared/api.interface';
 import { UpgradeService } from '../upgrade/upgrade.service';
 export declare class ConsultOrdersService {
     private readonly db;

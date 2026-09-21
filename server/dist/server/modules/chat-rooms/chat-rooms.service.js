@@ -17,7 +17,7 @@ exports.ChatRoomsService = void 0;
 const common_1 = require("@nestjs/common");
 const database_module_1 = require("../../database/database.module");
 const drizzle_orm_1 = require("drizzle-orm");
-const schema_1 = require("../../database/schema");
+const schema_1 = require("@server/database/schema");
 const ADMIN_PHONES = ['13800000000'];
 let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
     db;
@@ -67,8 +67,9 @@ let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
             .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatRooms.isActive, true), (0, drizzle_orm_1.sql) `(${schema_1.chatRooms.scheduledEndTime} IS NULL OR ${schema_1.chatRooms.scheduledEndTime} > ${now})`))
             .orderBy((0, drizzle_orm_1.desc)(schema_1.chatRooms.createdAt));
         const roomIds = rooms.map((r) => r.id);
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
         const members = roomIds.length > 0
-            ? await this.db.select().from(schema_1.chatRoomMembers).where((0, drizzle_orm_1.inArray)(schema_1.chatRoomMembers.roomId, roomIds))
+            ? await this.db.select().from(schema_1.chatRoomMembers).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.inArray)(schema_1.chatRoomMembers.roomId, roomIds), (0, drizzle_orm_1.gte)(schema_1.chatRoomMembers.lastActiveAt, fiveMinutesAgo)))
             : [];
         const mics = roomIds.length > 0
             ? await this.db.select().from(schema_1.chatMicSlots).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.inArray)(schema_1.chatMicSlots.roomId, roomIds), (0, drizzle_orm_1.eq)(schema_1.chatMicSlots.isActive, true)))
@@ -154,8 +155,13 @@ let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
         const memberRows = await this.db.select().from(schema_1.chatRoomMembers).where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.roomId, roomId), (0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.userId, userId))).limit(1);
         let member = memberRows[0];
         if (!member && room.type === 'public') {
-            await this.db.insert(schema_1.chatRoomMembers).values({ roomId, userId, role: 'member' });
-            member = { roomId, userId, role: 'member', isMuted: false, isBlocked: false };
+            await this.db.insert(schema_1.chatRoomMembers).values({ roomId, userId, role: 'member', lastActiveAt: new Date() });
+            member = { roomId, userId, role: 'member', isMuted: false, isBlocked: false, lastActiveAt: new Date() };
+        }
+        else if (member) {
+            await this.db.update(schema_1.chatRoomMembers)
+                .set({ lastActiveAt: new Date() })
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.roomId, roomId), (0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.userId, userId)));
         }
         if (!member) {
             throw new common_1.ForbiddenException('你不是该聊天室成员');
@@ -197,9 +203,10 @@ let ChatRoomsService = ChatRoomsService_1 = class ChatRoomsService {
         if (myMember.length === 0) {
             throw new common_1.ForbiddenException('你不是该聊天室成员');
         }
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
         const members = await this.db.select().from(schema_1.chatRoomMembers)
-            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.roomId, roomId), (0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.isBlocked, false)))
-            .orderBy((0, drizzle_orm_1.desc)(schema_1.chatRoomMembers.joinedAt));
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.roomId, roomId), (0, drizzle_orm_1.eq)(schema_1.chatRoomMembers.isBlocked, false), (0, drizzle_orm_1.gte)(schema_1.chatRoomMembers.lastActiveAt, fiveMinutesAgo)))
+            .orderBy((0, drizzle_orm_1.desc)(schema_1.chatRoomMembers.lastActiveAt));
         const memberUserIds = members.map((m) => m.userId);
         const memberUsers = memberUserIds.length > 0
             ? await this.db.select({

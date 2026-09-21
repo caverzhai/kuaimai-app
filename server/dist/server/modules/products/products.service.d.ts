@@ -1,5 +1,5 @@
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import type { ProductInfo, ProductListResponse, ProductCategoryInfo } from '../../../shared/api.interface';
+import type { ProductInfo, ProductListResponse, ProductCategoryInfo } from '@shared/api.interface';
 interface ProductListParams {
     page?: number;
     pageSize?: number;

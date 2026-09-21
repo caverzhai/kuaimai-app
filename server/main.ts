@@ -62,6 +62,12 @@ async function initDatabase() {
         ALTER TABLE mall_orders ADD COLUMN IF NOT EXISTS auto_delivery_deadline TIMESTAMP(3);
       `);
 
+      // chat_room_members 表添加 last_active_at 字段（在线状态判断）
+      await sql.unsafe(`
+        ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP;
+        CREATE INDEX IF NOT EXISTS idx_chat_room_members_last_active ON chat_room_members(last_active_at);
+      `);
+
       // 修复历史乱码数据
       try {
         await sql.unsafe(`
