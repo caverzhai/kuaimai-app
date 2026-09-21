@@ -385,4 +385,28 @@ export class AdminController {
     await this.db.update(users).set({ isSeller: true, sellerStatus }).where(sql`id = ${id}`);
     return { success: true, sellerStatus, message: action === 'approve' ? '卖家审核通过' : '卖家申请已拒绝' };
   }
+
+  // ============================================================
+  // 推广费（管理费）审核
+  // ============================================================
+
+  @Get('management-fees')
+  async getManagementFees(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.adminService.getAllManagementFees(
+      page ? parseInt(page, 10) : 1,
+      pageSize ? parseInt(pageSize, 10) : 20,
+      status,
+    );
+  }
+
+  @Post('management-fees/:id/confirm')
+  async confirmManagementFee(@Req() req: Request, @Param('id') id: string) {
+    checkAdmin(req);
+    return this.adminService.confirmManagementFee(req.user.userId, id);
+  }
+
 }

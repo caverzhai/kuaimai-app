@@ -11,7 +11,7 @@ import {
 } from '../../../shared/api.interface';
 
 /** 管理费率：0.8% */
-const MANAGEMENT_FEE_RATE = 0.008;
+const MANAGEMENT_FEE_RATE = 0.08;
 
 @Injectable()
 export class SellersService {
@@ -352,7 +352,7 @@ export class SellersService {
     const updated = await this.db
       .update(managementFees)
       .set({
-        status: MANAGEMENT_FEE_STATUS.PAID,
+        status: MANAGEMENT_FEE_STATUS.PENDING_REVIEW,
         paymentScreenshotUrl: screenshotUrl,
         paidAt: new Date(),
       })

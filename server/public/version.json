@@ -1,6 +1,6 @@
 {
-  "version": "2.31.0",
-  "versionCode": 135,
+  "version": "2.32.0",
+  "versionCode": 136,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
   "releaseNotes": "修复APP登录：原生网络异常时自动切换通道、放开跨域、兼容输入空格，并明确区分网络错误与密码错误提示。",
   "forceUpdate": true,

@@ -16,6 +16,7 @@ import {
   consultOrders,
   platformQrcodes,
   upgradeTasks,
+  managementFees,
 } from '@server/database/schema';
 import { ProductsService } from '@server/modules/products/products.service';
 import { hashPassword } from '@server/common/utils/auth.util';
@@ -711,4 +712,62 @@ export class AdminService {
       level: user.level,
     };
   }
+
+  // ==================== 推广费（管理费）审核 ====================
+
+  /** 管理员查看所有推广费记录 */
+  async getAllManagementFees(page: number, pageSize: number, status?: string) {
+    const conditions: any[] = [];
+    if (status) conditions.push(eq(managementFees.status, status));
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const baseQuery = this.db.select().from(managementFees);
+    const [countResult, items] = await Promise.all([
+      this.db.select({ count: count() }).from(managementFees).where(whereClause as any),
+      baseQuery
+        .where(whereClause as any)
+        .orderBy(desc(managementFees.feeDate))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
+
+    return {
+      items: items.map((row: any) => ({
+        id: row.id,
+        sellerId: row.sellerId,
+        sellerName: row.sellerName ?? undefined,
+        feeDate: row.feeDate.toISOString(),
+        totalSales: String(row.totalSales),
+        feeAmount: String(row.feeAmount),
+        status: row.status,
+        paymentScreenshotUrl: row.paymentScreenshotUrl ?? undefined,
+        paidAt: row.paidAt ? row.paidAt.toISOString() : undefined,
+        confirmedBy: row.confirmedBy ?? undefined,
+        confirmedAt: row.confirmedAt ? row.confirmedAt.toISOString() : undefined,
+        deadline: row.deadline ? row.deadline.toISOString() : undefined,
+        createdAt: row.createdAt.toISOString(),
+      })),
+      total: Number(countResult[0]?.count ?? 0),
+      page,
+      pageSize,
+    };
+  }
+
+  /** 管理员确认推广费已到账 */
+  async confirmManagementFee(adminId: string, feeId: string) {
+    const rows = await this.db.select().from(managementFees).where(eq(managementFees.id, feeId)).limit(1);
+    const fee = rows[0];
+    if (!fee) throw new NotFoundException('推广费记录不存在');
+    if (fee.status !== 'pending_review') {
+      throw new BadRequestException('当前状态不允许确认，需卖家先上传支付凭证');
+    }
+    const updated = await this.db
+      .update(managementFees)
+      .set({ status: 'confirmed', confirmedBy: adminId, confirmedAt: new Date() })
+      .where(eq(managementFees.id, feeId))
+      .returning();
+    this.logger.log(`管理员确认推广费: feeId=${feeId}, sellerId=${fee.sellerId}`);
+    return { success: true, id: updated[0].id, status: updated[0].status };
+  }
+
 }

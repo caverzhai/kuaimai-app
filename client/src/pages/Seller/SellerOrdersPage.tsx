@@ -107,7 +107,7 @@ export default function SellerOrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-8">
+    <div className="min-h-screen bg-gray-50 pb-28">
       {/* 顶部导航 */}
       <div className="bg-white shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-3 px-4 py-3">

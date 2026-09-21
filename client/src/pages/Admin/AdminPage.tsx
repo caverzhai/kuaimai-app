@@ -19,6 +19,8 @@ import {
   updateAdminUserPhone,
   adminGetAllChatRooms,
   adminDeleteChatRoom,
+  getAdminManagementFees,
+  confirmManagementFee,
 } from '@client/src/api';
 import type {
   ProductInfo,
@@ -45,13 +47,14 @@ import {
   X,
   MessageCircle,
   Trash2,
+  Wallet,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Image } from '@client/src/components/ui/image';
 import { ProductForm } from '@client/src/components/ProductForm';
 import { playNewTaskSound } from '@client/src/utils/notification-sound';
 
-type TabType = 'products' | 'mall-orders' | 'users' | 'company-audits' | 'consult-orders' | 'qrcodes' | 'chat-rooms';
+type TabType = 'products' | 'mall-orders' | 'users' | 'company-audits' | 'consult-orders' | 'qrcodes' | 'chat-rooms' | 'management-fees';
 
 const AdminPage = () => {
   const [activeTab, setActiveTab] = useState<TabType>('products');
@@ -64,6 +67,7 @@ const AdminPage = () => {
   const [consultOrders, setConsultOrders] = useState<ConsultOrderInfo[]>([]);
   const [mallQrcode, setMallQrcode] = useState<PlatformQrcodeInfo | null>(null);
   const [chatRooms, setChatRooms] = useState<any[]>([]);
+  const [managementFees, setManagementFees] = useState<any[]>([]);
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductInfo | null>(null);
 
@@ -182,6 +186,11 @@ const AdminPage = () => {
           setChatRooms(data.items || []);
           break;
         }
+        case 'management-fees': {
+          const data = await getAdminManagementFees({ page: 1, pageSize: 50 });
+          setManagementFees(data.items || []);
+          break;
+        }
       }
     } catch (error) {
       logger.error(`加载${tab}失败`, error);
@@ -198,6 +207,7 @@ const AdminPage = () => {
     { key: 'consult-orders', label: '咨询订单', icon: MessageSquare },
     { key: 'qrcodes', label: '收款码管理', icon: QrCode },
     { key: 'chat-rooms', label: '聊天室管理', icon: MessageCircle },
+    { key: 'management-fees', label: '推广费审核', icon: Wallet },
   ];
 
   async function handleReviewPayment(orderId: string, passed: boolean) {
@@ -1007,6 +1017,76 @@ const AdminPage = () => {
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* 推广费审核 */}
+            {activeTab === 'management-fees' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold">推广费审核</h3>
+                  <span className="text-xs text-gray-500">卖家每日12点前上交昨日成交额8%</span>
+                </div>
+                {loading ? (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
+                  </div>
+                ) : managementFees.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400">
+                    <Wallet className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    暂无推广费记录
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {managementFees.map((fee: any) => (
+                      <div key={fee.id} className="p-4 rounded-lg border bg-white border-gray-200">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-gray-900">{fee.sellerName || fee.sellerId?.slice(0,8)}</span>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                fee.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                fee.status === 'pending_review' ? 'bg-blue-100 text-blue-700' :
+                                fee.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                                'bg-red-100 text-red-700'
+                              }`}>
+                                {fee.status === 'pending' ? '待支付' :
+                                 fee.status === 'pending_review' ? '待审核' :
+                                 fee.status === 'confirmed' ? '已确认' : '已逾期'}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
+                              <span>费期：{fee.feeDate?.slice(0,10)}</span>
+                              <span>成交额：¥{Number(fee.totalSales).toFixed(2)}</span>
+                              <span className="text-orange-600 font-medium">推广费：¥{Number(fee.feeAmount).toFixed(2)}</span>
+                              {fee.deadline && <span>截止：{new Date(fee.deadline).toLocaleString('zh-CN')}</span>}
+                            </div>
+                            {fee.paymentScreenshotUrl && (
+                              <div className="mt-2">
+                                <p className="text-xs text-gray-500 mb-1">支付凭证：</p>
+                                <img src={fee.paymentScreenshotUrl} alt="支付凭证" className="w-32 h-32 object-cover rounded-lg border" />
+                              </div>
+                            )}
+                          </div>
+                          {fee.status === 'pending_review' && (
+                            <button
+                              onClick={() => {
+                                if (window.confirm('确认该推广费已到账？')) {
+                                  confirmManagementFee(fee.id)
+                                    .then(() => { toast.success('已确认到账'); loadTabData('management-fees'); })
+                                    .catch(() => toast.error('确认失败'));
+                                }
+                              }}
+                              className="ml-3 px-3 py-1.5 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 flex-shrink-0"
+                            >
+                              确认到账
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

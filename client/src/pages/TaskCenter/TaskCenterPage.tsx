@@ -624,6 +624,23 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
           <ChevronRight className="h-5 w-5" />
         </button>
       )}
+      {/* 卖家推广费管理入口（仅卖家可见） */}
+      {user.isSeller && (
+        <button
+          onClick={() => navigate('/seller/fees')}
+          className="w-full mb-4 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl p-4 text-white shadow-lg flex items-center gap-3 active:opacity-90"
+        >
+          <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+            <CreditCard className="h-5 w-5" />
+          </div>
+          <div className="flex-1 text-left">
+            <div className="font-bold text-base">推广费管理</div>
+            <div className="text-xs opacity-85">每日12点前上交昨日成交额8%</div>
+          </div>
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      )}
+
 
       {/* Tab 切换 */}
       <div className="flex bg-white rounded-xl p-1 mb-4 shadow-sm border border-gray-100">

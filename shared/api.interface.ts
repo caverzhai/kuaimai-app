@@ -377,6 +377,7 @@ export const PRODUCT_STATUS = {
 
 export const MANAGEMENT_FEE_STATUS = {
   PENDING: 'pending',
+  PENDING_REVIEW: 'pending_review',
   PAID: 'paid',
   CONFIRMED: 'confirmed',
   OVERDUE: 'overdue',
