@@ -283,7 +283,7 @@ export class UsersService {
       .set({ password: newHash })
       .where(eq(users.id, user.id));
 
-    this.logger.log(用户通过安全问题重置密码: userId=${user.id}, phone=${phone});
+    this.logger.log(`用户通过安全问题重置密码: userId=${user.id}, phone=${phone}`);
     return { success: true };
   }
 
