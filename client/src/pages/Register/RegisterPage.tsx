@@ -25,6 +25,8 @@ const RegisterPage = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [hasInviteCode, setHasInviteCode] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
+  const [securityQuestion, setSecurityQuestion] = useState('');
+  const [securityAnswer, setSecurityAnswer] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -126,6 +128,14 @@ const RegisterPage = () => {
       setError('两次输入的密码不一致');
       return;
     }
+    if (!securityQuestion.trim()) {
+      setError('请选择安全问题');
+      return;
+    }
+    if (!securityAnswer.trim()) {
+      setError('请输入安全问题答案');
+      return;
+    }
     setLoading(true);
     try {
       await register({
@@ -133,6 +143,8 @@ const RegisterPage = () => {
         nickname,
         password,
         inviteCode: hasInviteCode ? inviteCode : undefined,
+        securityQuestion,
+        securityAnswer,
       });
       navigate('/');
     } catch (err: unknown) {
@@ -266,6 +278,38 @@ const RegisterPage = () => {
                   </>
                 )}
               </button>
+            </div>
+
+            {/* 安全问题 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                安全问题（用于找回密码，请务必牢记答案）
+              </label>
+              <select
+                value={securityQuestion}
+                onChange={(e) => setSecurityQuestion(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-colors text-sm bg-white"
+              >
+                <option value="">请选择安全问题</option>
+                <option value="你的出生城市是哪里？">你的出生城市是哪里？</option>
+                <option value="你最喜欢的颜色是什么？">你最喜欢的颜色是什么？</option>
+                <option value="你的小学名称是什么？">你的小学名称是什么？</option>
+                <option value="你最喜欢的食物是什么？">你最喜欢的食物是什么？</option>
+                <option value="你的幸运数字是多少？">你的幸运数字是多少？</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                安全问题答案
+              </label>
+              <input
+                type="text"
+                value={securityAnswer}
+                onChange={(e) => setSecurityAnswer(e.target.value)}
+                placeholder="请输入答案（请务必记住）"
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-colors text-sm"
+              />
             </div>
 
             {hasInviteCode && (

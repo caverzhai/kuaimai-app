@@ -19,6 +19,7 @@ import FinancePage from './pages/Finance/FinancePage';
 import SupplementInviterPage from './pages/SupplementInviter/SupplementInviter';
 import AdminPage from './pages/Admin/AdminPage';
 import ChatRoomDetailPage from './pages/ChatRoom/ChatRoomDetailPage';
+import ForgotPasswordPage from './pages/ForgotPassword/ForgotPasswordPage';
 import NotFound from './pages/NotFound/NotFound';
 
 const RoutesComponent = () => {

@@ -27,4 +27,18 @@ export class AuthController {
   async login(@Body() dto: UserLoginDTO): Promise<LoginResponse> {
     return this.usersService.login(dto);
   }
+
+  // 忘记密码：通过安全问题重置密码
+  @Post('reset-password-by-security')
+  async resetPasswordBySecurity(
+    @Body() body: { phone: string; securityAnswer: string; newPassword: string },
+  ) {
+    return this.usersService.resetPasswordBySecurity(body);
+  }
+
+  // 获取安全问题（根据手机号）
+  @Post('get-security-question')
+  async getSecurityQuestion(@Body() body: { phone: string }) {
+    return this.usersService.getSecurityQuestion(body.phone);
+  }
 }

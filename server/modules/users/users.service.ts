@@ -236,6 +236,57 @@ export class UsersService {
 
   // ── Current user ──────────────────────────────────────────────
 
+    // ── Security question ──────────────────────────────────────────
+
+  async getSecurityQuestion(phone: string): Promise<{ question: string | null }> {
+    const userRows = await this.db
+      .select({ securityQuestion: users.securityQuestion })
+      .from(users)
+      .where(eq(users.phone, phone))
+      .limit(1);
+    if (userRows.length === 0) {
+      throw new NotFoundException('手机号未注册');
+    }
+    return { question: userRows[0].securityQuestion };
+  }
+
+  async resetPasswordBySecurity(body: { phone: string; securityAnswer: string; newPassword: string }): Promise<{ success: boolean }> {
+    const { phone, securityAnswer, newPassword } = body;
+    if (!phone || !securityAnswer || !newPassword) {
+      throw new BadRequestException('参数不完整');
+    }
+    if (newPassword.length < 6) {
+      throw new BadRequestException('新密码长度至少6位');
+    }
+
+    const userRows = await this.db
+      .select()
+      .from(users)
+      .where(eq(users.phone, phone))
+      .limit(1);
+    if (userRows.length === 0) {
+      throw new NotFoundException('手机号未注册');
+    }
+    const user = userRows[0];
+
+    if (!user.securityQuestion || !user.securityAnswer) {
+      throw new BadRequestException('该账号未设置安全问题，请联系管理员重置密码');
+    }
+
+    if (user.securityAnswer !== securityAnswer.trim()) {
+      throw new BadRequestException('安全问题答案错误');
+    }
+
+    const newHash = await hashPassword(newPassword);
+    await this.db
+      .update(users)
+      .set({ password: newHash })
+      .where(eq(users.id, user.id));
+
+    this.logger.log(用户通过安全问题重置密码: userId=${user.id}, phone=${phone});
+    return { success: true };
+  }
+
   async getCurrentUser(userId: string): Promise<UserInfo> {
     const userRows = await this.db
       .select()
