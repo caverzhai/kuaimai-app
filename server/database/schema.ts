@@ -353,6 +353,8 @@ export const users = pgTable("users", {
   treeLevel: integer("tree_level").notNull().default(0),
   isSeller: boolean("is_seller").notNull().default(false),
   sellerStatus: varchar("seller_status", { length: 20 }).default("none"),
+  securityQuestion: varchar("security_question", { length: 200 }),
+  securityAnswer: varchar("security_answer", { length: 200 }),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
