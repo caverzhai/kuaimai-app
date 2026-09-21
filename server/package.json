@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc && tsc-alias && mkdir -p dist/server/database && cp database/init.sql dist/server/database/ && echo 'init.sql copied'",
+    "build": "tsc && tsc-alias && mkdir -p dist/server/database && cp database/init.sql dist/server/database/ && cp -r public dist/ && echo 'build complete, public copied'",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/server/main.js",
