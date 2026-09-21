@@ -1,14 +1,10 @@
 package com.kuaimai.app;
 
-import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -23,27 +19,30 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
+import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
 
 public class MainActivity extends BridgeActivity {
 
-    private long downloadId = -1;
-    private String apkFilePath = null;
-    private BroadcastReceiver downloadReceiver = null;
+    private boolean appUpdateInjected = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 延迟注册原生桥接接口，确保Bridge完全初始化
-        new Handler().postDelayed(new Runnable() {
+        // 轮询注入原生接口，确保WebView完全初始化后注入
+        injectInterfacesWithRetry();
+    }
+
+    /**
+     * 轮询注入原生接口，最多重试10次，每次间隔300ms
+     */
+    private void injectInterfacesWithRetry() {
+        final int[] retryCount = {0};
+        final Handler handler = new Handler();
+        final Runnable injectRunnable = new Runnable() {
             @Override
             public void run() {
                 try {
@@ -55,69 +54,28 @@ public class MainActivity extends BridgeActivity {
                         webSettings.setDomStorageEnabled(true);
                         webSettings.setDatabaseEnabled(true);
 
-                        // 注册原生 HTTP 桥接接口，完全绕过 WebView 的 CORS 限制
+                        // 注册原生 HTTP 桥接接口
                         webView.addJavascriptInterface(new HttpBridge(), "NativeHttp");
                         // 注册 APP 更新桥接接口
                         webView.addJavascriptInterface(new AppUpdateBridge(), "AppUpdate");
-                        
-                        // 再次延迟确认（防止WebView重建）
-                        new Handler().postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    WebView wv = getBridge().getWebView();
-                                    if (wv != null) {
-                                        wv.addJavascriptInterface(new AppUpdateBridge(), "AppUpdate");
-                                    }
-                                } catch (Exception e) {
-                                    e.printStackTrace();
-                                }
-                            }
-                        }, 1000);
+
+                        appUpdateInjected = true;
+                        android.util.Log.d("Kuaimai", "原生接口注入成功，重试次数: " + retryCount[0]);
+                        return;
                     }
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    android.util.Log.e("Kuaimai", "注入失败: " + e.getMessage());
+                }
+
+                retryCount[0]++;
+                if (retryCount[0] < 15) {
+                    handler.postDelayed(this, 300);
+                } else {
+                    android.util.Log.e("Kuaimai", "注入失败，已达最大重试次数");
                 }
             }
-        }, 500);
-
-        // 注册下载完成广播接收器（用成员变量持有，防止被GC回收）
-        try {
-            downloadReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    try {
-                        long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                        if (id == downloadId && apkFilePath != null) {
-                            // 检查下载是否成功
-                            DownloadManager downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                            DownloadManager.Query query = new DownloadManager.Query();
-                            query.setFilterById(id);
-                            android.database.Cursor cursor = downloadManager.query(query);
-                            if (cursor.moveToFirst()) {
-                                int status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS));
-                                cursor.close();
-                                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                                    installApk(apkFilePath);
-                                } else {
-                                    runOnUiThread(() -> {
-                                        Toast.makeText(MainActivity.this, "下载失败，请重试", Toast.LENGTH_LONG).show();
-                                    });
-                                }
-                            } else {
-                                cursor.close();
-                                installApk(apkFilePath);
-                            }
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
-            };
-            registerReceiver(downloadReceiver, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        };
+        handler.post(injectRunnable);
     }
 
     /**
@@ -129,44 +87,94 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public String downloadAndInstall(String apkUrl, String versionName) {
             try {
+                android.util.Log.d("Kuaimai", "开始下载APK: " + apkUrl + ", 版本: " + versionName);
+
                 // 检查安装权限
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     if (!getPackageManager().canRequestPackageInstalls()) {
-                        // 跳转到安装权限设置页面
                         Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
                         intent.setData(Uri.parse("package:" + getPackageName()));
                         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         startActivity(intent);
-                        return "{\"success\":false,\"message\":\"请先允许安装未知应用\"}";
+                        return "{\"success\":false,\"message\":\"请先允许安装未知应用，然后重新点击更新\"}";
                     }
                 }
 
-                // 创建下载请求
-                DownloadManager.Request request = new DownloadManager.Request(Uri.parse(apkUrl));
-                request.setTitle("快卖 APP 更新");
-                request.setDescription("正在下载版本 " + versionName);
-                request.setMimeType("application/vnd.android.package-archive");
-                request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE);
-                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                // 在后台线程下载APK
+                final String finalApkUrl = apkUrl;
+                final String finalVersionName = versionName;
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    Toast.makeText(MainActivity.this, "正在下载更新...", Toast.LENGTH_LONG).show();
+                                }
+                            });
 
-                // 设置保存路径
-                String fileName = "kuaimai_" + versionName.replace(".", "_") + ".apk";
-                File apkFile = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName);
-                apkFilePath = apkFile.getAbsolutePath();
-                request.setDestinationUri(Uri.fromFile(apkFile));
+                            // 用HttpURLConnection下载APK
+                            URL url = new URL(finalApkUrl);
+                            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                            connection.setRequestMethod("GET");
+                            connection.setConnectTimeout(30000);
+                            connection.setReadTimeout(120000);
+                            connection.setInstanceFollowRedirects(true);
+                            connection.connect();
 
-                // 如果文件已存在，先删除
-                if (apkFile.exists()) {
-                    apkFile.delete();
-                }
+                            int responseCode = connection.getResponseCode();
+                            if (responseCode != HttpURLConnection.HTTP_OK) {
+                                throw new Exception("HTTP错误: " + responseCode);
+                            }
 
-                // 开始下载
-                DownloadManager downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                downloadId = downloadManager.enqueue(request);
+                            int contentLength = connection.getContentLength();
+                            InputStream inputStream = connection.getInputStream();
 
-                runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "开始下载更新...", Toast.LENGTH_LONG).show();
-                });
+                            // 保存到文件
+                            String fileName = "kuaimai_update_" + finalVersionName.replace(".", "_") + ".apk";
+                            File apkFile = new File(getExternalFilesDir(null), fileName);
+                            if (apkFile.exists()) {
+                                apkFile.delete();
+                            }
+
+                            FileOutputStream outputStream = new FileOutputStream(apkFile);
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            long totalBytesRead = 0;
+                            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                outputStream.write(buffer, 0, bytesRead);
+                                totalBytesRead += bytesRead;
+                            }
+                            outputStream.flush();
+                            outputStream.close();
+                            inputStream.close();
+                            connection.disconnect();
+
+                            android.util.Log.d("Kuaimai", "APK下载完成，大小: " + totalBytesRead + " 字节，文件: " + apkFile.getAbsolutePath());
+
+                            // 下载完成，安装APK
+                            installApk(apkFile.getAbsolutePath());
+
+                        } catch (final Exception e) {
+                            android.util.Log.e("Kuaimai", "下载失败: " + e.getMessage());
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    Toast.makeText(MainActivity.this, "下载失败: " + e.getMessage() + "，请用浏览器下载", Toast.LENGTH_LONG).show();
+                                }
+                            });
+                            // 降级：用浏览器打开下载链接
+                            try {
+                                Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(finalApkUrl));
+                                browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                startActivity(browserIntent);
+                            } catch (Exception ex) {
+                                ex.printStackTrace();
+                            }
+                        }
+                    }
+                }).start();
 
                 return "{\"success\":true,\"message\":\"开始下载\"}";
             } catch (Exception e) {
@@ -185,6 +193,11 @@ public class MainActivity extends BridgeActivity {
                 return "{\"versionName\":\"unknown\",\"versionCode\":0}";
             }
         }
+
+        @JavascriptInterface
+        public boolean isInjected() {
+            return true;
+        }
     }
 
     private void installApk(String filePath) {
@@ -201,7 +214,6 @@ public class MainActivity extends BridgeActivity {
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                // Android 7.0+ 使用 FileProvider
                 Uri apkUri = FileProvider.getUriForFile(
                     this,
                     getPackageName() + ".fileprovider",
@@ -224,8 +236,6 @@ public class MainActivity extends BridgeActivity {
 
     /**
      * 原生 HTTP 桥接接口
-     * JavaScript 通过 window.NativeHttp.request() 调用
-     * 完全通过原生层发起请求，不存在 CORS 限制
      */
     public class HttpBridge {
 
@@ -240,10 +250,9 @@ public class MainActivity extends BridgeActivity {
                 connection.setReadTimeout(30000);
                 connection.setInstanceFollowRedirects(true);
 
-                // 设置请求头
                 if (headersJson != null && !headersJson.isEmpty()) {
                     JSONObject headersObj = new JSONObject(headersJson);
-                    Iterator<String> keys = headersObj.keys();
+                    java.util.Iterator<String> keys = headersObj.keys();
                     while (keys.hasNext()) {
                         String key = keys.next();
                         String value = headersObj.optString(key, "");
@@ -255,13 +264,12 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
 
-                // 处理请求体
                 String reqMethod = method != null ? method.toUpperCase() : "GET";
                 if (!reqMethod.equals("GET") && !reqMethod.equals("HEAD") && body != null) {
                     connection.setDoOutput(true);
                     byte[] bodyBytes = body.getBytes("UTF-8");
                     connection.setRequestProperty("Content-Length", String.valueOf(bodyBytes.length));
-                    OutputStream os = connection.getOutputStream();
+                    java.io.OutputStream os = connection.getOutputStream();
                     os.write(bodyBytes);
                     os.close();
                 }
@@ -269,15 +277,13 @@ public class MainActivity extends BridgeActivity {
                 int statusCode = connection.getResponseCode();
                 String statusMessage = connection.getResponseMessage();
 
-                // 获取响应头
-                Map<String, String> responseHeaders = new HashMap<>();
-                for (Map.Entry<String, java.util.List<String>> entry : connection.getHeaderFields().entrySet()) {
+                java.util.Map<String, String> responseHeaders = new java.util.HashMap<>();
+                for (java.util.Map.Entry<String, java.util.List<String>> entry : connection.getHeaderFields().entrySet()) {
                     if (entry.getKey() != null && entry.getValue() != null && !entry.getValue().isEmpty()) {
                         responseHeaders.put(entry.getKey(), entry.getValue().get(0));
                     }
                 }
 
-                // 获取响应体
                 InputStream inputStream;
                 if (statusCode >= 400) {
                     inputStream = connection.getErrorStream();
@@ -287,10 +293,16 @@ public class MainActivity extends BridgeActivity {
 
                 String responseBody = "";
                 if (inputStream != null) {
-                    responseBody = readAll(inputStream);
+                    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                    byte[] data = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = inputStream.read(data, 0, data.length)) != -1) {
+                        buffer.write(data, 0, bytesRead);
+                    }
+                    buffer.flush();
+                    responseBody = buffer.toString("UTF-8");
                 }
 
-                // 构造响应 JSON
                 JSONObject result = new JSONObject();
                 result.put("status", statusCode);
                 result.put("statusText", statusMessage != null ? statusMessage : "");
@@ -300,7 +312,6 @@ public class MainActivity extends BridgeActivity {
                 return result.toString();
 
             } catch (Exception e) {
-                // 返回错误响应
                 try {
                     JSONObject errorResult = new JSONObject();
                     errorResult.put("status", 0);
@@ -316,17 +327,6 @@ public class MainActivity extends BridgeActivity {
                     connection.disconnect();
                 }
             }
-        }
-
-        private String readAll(InputStream inputStream) throws IOException {
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            byte[] data = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = inputStream.read(data, 0, data.length)) != -1) {
-                buffer.write(data, 0, bytesRead);
-            }
-            buffer.flush();
-            return buffer.toString("UTF-8");
         }
     }
 }

@@ -1,8 +1,8 @@
-// APP 版本配置
-export const APP_VERSION = '2.28.0';
-export const APP_VERSION_CODE = 121;
+// APP 鐗堟湰閰嶇疆
+export const APP_VERSION = '2.28.1';
+export const APP_VERSION_CODE = 122;
 
-// 版本信息接口地址（部署到后端静态文件）
+// 鐗堟湰淇℃伅鎺ュ彛鍦板潃锛堥儴缃插埌鍚庣闈欐€佹枃浠讹級
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
 
 export interface VersionInfo {
@@ -13,7 +13,7 @@ export interface VersionInfo {
   forceUpdate: boolean;
 }
 
-// 原生 APP 更新接口类型声明
+// 鍘熺敓 APP 鏇存柊鎺ュ彛绫诲瀷澹版槑
 declare global {
   interface Window {
     AppUpdate?: {
@@ -23,7 +23,7 @@ declare global {
   }
 }
 
-// 获取当前 APP 版本（优先使用原生获取，降级使用前端配置）
+// 鑾峰彇褰撳墠 APP 鐗堟湰锛堜紭鍏堜娇鐢ㄥ師鐢熻幏鍙栵紝闄嶇骇浣跨敤鍓嶇閰嶇疆锛?
 export function getCurrentVersion(): { versionName: string; versionCode: number } {
   try {
     if (window.AppUpdate && typeof window.AppUpdate.getCurrentVersion === 'function') {
@@ -33,14 +33,14 @@ export function getCurrentVersion(): { versionName: string; versionCode: number 
       }
     }
   } catch (error) {
-    console.error('获取原生版本号失败', error);
+    console.error('鑾峰彇鍘熺敓鐗堟湰鍙峰け璐?, error);
   }
   return { versionName: APP_VERSION, versionCode: APP_VERSION_CODE };
 }
 
-// 检查更新（仅在APP环境下检查，H5网页版不检查APP更新）
+// 妫€鏌ユ洿鏂帮紙浠呭湪APP鐜涓嬫鏌ワ紝H5缃戦〉鐗堜笉妫€鏌PP鏇存柊锛?
 export async function checkUpdate(): Promise<VersionInfo | null> {
-  // H5网页环境不检查APP更新，避免无限循环提示
+  // H5缃戦〉鐜涓嶆鏌PP鏇存柊锛岄伩鍏嶆棤闄愬惊鐜彁绀?
   if (!(window as any).Capacitor && !window.AppUpdate) {
     return null;
   }
@@ -54,31 +54,43 @@ export async function checkUpdate(): Promise<VersionInfo | null> {
     }
     return null;
   } catch (error) {
-    console.error('检查更新失败', error);
+    console.error('妫€鏌ユ洿鏂板け璐?, error);
     return null;
   }
 }
 
-// 下载并安装更新
+// 涓嬭浇骞跺畨瑁呮洿鏂?
 export function downloadAndInstall(versionInfo: VersionInfo): boolean {
   try {
+    // 濡傛灉AppUpdate鎺ュ彛宸叉敞鍏ワ紝鐩存帴璋冪敤
     if (window.AppUpdate && typeof window.AppUpdate.downloadAndInstall === 'function') {
       const result = JSON.parse(
         window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version)
       );
       if (result.success === true) return true;
     }
-    // APP环境：用系统浏览器打开下载链接（_system参数会调用外部浏览器）
+    // APP鐜浣嗘帴鍙ｆ湭娉ㄥ叆锛氳疆璇㈢瓑寰呮敞鍏ワ紙鏈€澶氱瓑寰?绉掞級
     if ((window as any).Capacitor) {
-      window.open(versionInfo.downloadUrl, '_system');
+      let waitCount = 0;
+      const waitForInject = setInterval(() => {
+        waitCount++;
+        if (window.AppUpdate && typeof window.AppUpdate.downloadAndInstall === 'function') {
+          clearInterval(waitForInject);
+          window.AppUpdate.downloadAndInstall(versionInfo.downloadUrl, versionInfo.version);
+        } else if (waitCount > 10) {
+          clearInterval(waitForInject);
+          // 娉ㄥ叆瓒呮椂锛岄檷绾х敤绯荤粺娴忚鍣ㄦ墦寮€
+          window.open(versionInfo.downloadUrl, '_system');
+        }
+      }, 300);
       return true;
     }
-    // 网页环境，打开下载链接
+    // 缃戦〉鐜锛屾墦寮€涓嬭浇閾炬帴
     window.open(versionInfo.downloadUrl, '_blank');
     return true;
   } catch (error) {
-    console.error('下载更新失败', error);
-    // 降级处理：直接跳转
+    console.error('涓嬭浇鏇存柊澶辫触', error);
+    // 闄嶇骇澶勭悊锛氱洿鎺ヨ烦杞?
     window.location.href = versionInfo.downloadUrl;
     return true;
   }
