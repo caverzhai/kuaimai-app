@@ -58,6 +58,7 @@ interface CreateProductDTO {
   mainImages: { url: string }[];
   detailImages: { url: string }[];
   sortOrder?: number;
+  sellerId?: string | null;
 }
 
 interface UpdateProductDTO {
