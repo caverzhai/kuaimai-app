@@ -156,6 +156,11 @@ export class DatabaseModule implements OnModuleInit {
       await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_products_seller_id ON products(seller_id)`)
       await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_mall_orders_seller_id ON mall_orders(seller_id)`)
 
+      // 安全问题字段迁移
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS security_question varchar(200)`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS security_answer varchar(200)`)
+      console.log('[Migration] 安全问题字段已确保存在')
+
       // 创建管理费表
       await this.db.execute(sql`
         CREATE TABLE IF NOT EXISTS management_fees (
