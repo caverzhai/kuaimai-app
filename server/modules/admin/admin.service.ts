@@ -18,6 +18,7 @@ import {
   upgradeTasks,
 } from '@server/database/schema';
 import { ProductsService } from '@server/modules/products/products.service';
+import { hashPassword } from '@server/common/utils/auth.util';
 import { UpgradeService } from '@server/modules/upgrade/upgrade.service';
 import {
   LEVELS,
@@ -133,6 +134,29 @@ export class AdminService {
     return this.productsService.updateProductStatus(id, nextStatus);
   }
 
+  async deleteProduct(id: string): Promise<{ success: boolean }> {
+    return this.productsService.deleteProduct(id);
+  }
+
+  /** 管理员重置用户密码（用户忘记密码、无短信验证码时的兜底方案） */
+  async resetUserPassword(id: string, newPassword: string): Promise<{ success: boolean }> {
+    if (!newPassword || newPassword.length < 6) {
+      throw new BadRequestException('新密码长度至少6位');
+    }
+    const existing = await this.db
+      .select({ id: users.id, phone: users.phone })
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
+    if (existing.length === 0) {
+      throw new NotFoundException('用户不存在');
+    }
+    const hashed = await hashPassword(newPassword);
+    await this.db.update(users).set({ password: hashed }).where(eq(users.id, id));
+    this.logger.log('管理员重置用户密码: id=' + id + ', phone=' + existing[0].phone);
+    return { success: true };
+  }
+
   // ============================================================
   // 鍟嗗煄璁㈠崟绠＄悊
   // ============================================================
@@ -174,9 +198,10 @@ export class AdminService {
     const pageSize = params.pageSize ?? 20;
     const offset = (page - 1) * pageSize;
 
-    const conditions = [];
+    // 平台后台只显示平台自营订单（sellerId 为空）；卖家商品订单由卖家在自己后台处理
+    const conditions = [sql${mallOrders.sellerId} IS NULL];
     if (params.status) conditions.push(eq(mallOrders.status, params.status));
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const whereClause = and(...conditions);
 
     const [countResult, itemsRaw] = await Promise.all([
       this.db.select({ count: count() }).from(mallOrders).where(whereClause),

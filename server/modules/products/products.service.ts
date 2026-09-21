@@ -267,4 +267,18 @@ export class ProductsService {
     }
     return this.getProductDetail(id);
   }
+
+  /** 物理删除商品（订单表无外键约束，不影响历史订单快照） */
+  async deleteProduct(id: string): Promise<{ success: boolean }> {
+    const existing = await this.db
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.id, id))
+      .limit(1);
+    if (existing.length === 0) {
+      throw new NotFoundException('商品不存在');
+    }
+    await this.db.delete(products).where(eq(products.id, id));
+    return { success: true };
+  }
 }

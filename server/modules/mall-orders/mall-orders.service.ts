@@ -367,6 +367,72 @@ export class MallOrdersService {
     return this.toOrderInfo(updated[0]);
   }
 
+  /** 卖家发货（支持快递物流 / 无需物流 / 到店自提） */
+  async shipSellerOrder(
+    sellerId: string,
+    id: string,
+    dto: { logisticsCompany?: string; logisticsNo?: string; shipType?: string },
+  ): Promise<MallOrderInfo> {
+    const orderList = await this.db
+      .select()
+      .from(mallOrders)
+      .where(eq(mallOrders.id, id));
+
+    const order = orderList[0];
+    if (!order) {
+      throw new NotFoundException('订单不存在');
+    }
+    if ((order as any).sellerId !== sellerId) {
+      throw new ForbiddenException('只能给自己商品的订单发货');
+    }
+    if (order.status !== MALL_ORDER_STATUS.PENDING_SHIPMENT) {
+      throw new BadRequestException('当前订单状态不允许发货');
+    }
+
+    // shipType: express（快递，默认）/ self_pickup（到店自提）/ no_logistics（无需物流）
+    const shipType = dto.shipType || 'express';
+    let logisticsCompany: string | null = null;
+    let logisticsNo: string | null = null;
+
+    if (shipType === 'express') {
+      if (!dto.logisticsCompany || !dto.logisticsNo) {
+        throw new BadRequestException('请填写物流公司和物流单号');
+      }
+      logisticsCompany = dto.logisticsCompany;
+      logisticsNo = dto.logisticsNo;
+    } else if (shipType === 'self_pickup') {
+      logisticsCompany = '到店自提';
+      logisticsNo = null;
+    } else {
+      logisticsCompany = '无需物流';
+      logisticsNo = null;
+    }
+
+    const now = new Date();
+    const autoDeliveryDeadline = new Date(now);
+    if (shipType === 'express') {
+      autoDeliveryDeadline.setDate(autoDeliveryDeadline.getDate() + 15);
+    } else {
+      // 自提/无需物流 20分钟自动确认收货
+      autoDeliveryDeadline.setMinutes(autoDeliveryDeadline.getMinutes() + 20);
+    }
+
+    const updated = await this.db
+      .update(mallOrders)
+      .set({
+        status: MALL_ORDER_STATUS.PENDING_DELIVERY,
+        logisticsCompany,
+        logisticsNo,
+        shippedAt: now,
+        autoDeliveryDeadline,
+      })
+      .where(eq(mallOrders.id, id))
+      .returning();
+
+    this.logger.log('卖家发货: orderId=' + id + ', sellerId=' + sellerId + ', shipType=' + shipType);
+    return this.toOrderInfo(updated[0]);
+  }
+
   /** 定时任务：自动确认超时的收货（免物流20分钟，有物流15天） */
   async autoDeliverExpiredOrdersCron(): Promise<{ delivered: number }> {
     const now = new Date();

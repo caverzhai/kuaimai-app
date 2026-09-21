@@ -475,138 +475,6 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
         </div>
       </div>
 
-      {/* 关系树 */}
-      <section className="bg-white rounded-2xl shadow-sm p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Users size={18} className="text-orange-500" />
-          我的关系树
-        </h3>
-        {relationTreeLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 size={20} className="animate-spin text-orange-500" />
-            <span className="ml-2 text-sm text-gray-500">加载中...</span>
-          </div>
-        ) : relationTree ? (
-          <div className="space-y-4">
-            {/* ===== 上级关系 ===== */}
-            <div>
-              <p className="text-xs font-medium text-gray-400 mb-2 uppercase">上级关系</p>
-              <div className="space-y-2">
-                {/* 直接邀请人 */}
-                <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-xl">
-                  <div className="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-orange-700 font-bold text-sm flex-shrink-0">
-                    邀
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-500 mb-0.5">我的直接邀请人</p>
-                    {relationTree.directInviter ? (
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-gray-900 truncate">{relationTree.directInviter.nickname}</p>
-                        <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded">{LEVEL_NAMES[relationTree.directInviter.level as keyof typeof LEVEL_NAMES] || relationTree.directInviter.level}</span>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-400">无</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* 直接上级咨询师 */}
-                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl">
-                  <div className="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
-                    上
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-500 mb-0.5">我的直接上级咨询师（上一代）</p>
-                    {relationTree.directParent ? (
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-gray-900 truncate">{relationTree.directParent.nickname}</p>
-                        <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{LEVEL_NAMES[relationTree.directParent.level as keyof typeof LEVEL_NAMES] || relationTree.directParent.level}</span>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-400">无</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ===== 下级关系 ===== */}
-            <div>
-              <p className="text-xs font-medium text-gray-400 mb-2 uppercase">下级关系</p>
-              <div className="space-y-2">
-                {/* 直接下一代咨询师 */}
-                <div className="p-3 bg-teal-50 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-teal-200 flex items-center justify-center text-teal-700 font-bold text-xs flex-shrink-0">
-                      下1
-                    </div>
-                    <p className="text-xs text-gray-500">我的直接下一代咨询师（{relationTree.directChildren?.length || 0}人）</p>
-                  </div>
-                  {relationTree.directChildren && relationTree.directChildren.length > 0 ? (
-                    <div className="space-y-1.5 ml-10">
-                      {relationTree.directChildren.map((child: any) => (
-                        <div key={child.id} className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
-                          <span className="text-xs px-1.5 py-0.5 bg-teal-100 text-teal-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-400 ml-10">无</p>
-                  )}
-                </div>
-
-                {/* 下二代咨询师 */}
-                <div className="p-3 bg-green-50 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xs flex-shrink-0">
-                      下2
-                    </div>
-                    <p className="text-xs text-gray-500">我的下二代咨询师（{relationTree.secondGenerationChildren?.length || 0}人）</p>
-                  </div>
-                  {relationTree.secondGenerationChildren && relationTree.secondGenerationChildren.length > 0 ? (
-                    <div className="space-y-1.5 ml-10">
-                      {relationTree.secondGenerationChildren.map((child: any) => (
-                        <div key={child.id} className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
-                          <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-400 ml-10">无</p>
-                  )}
-                </div>
-
-                {/* 下三代咨询师 */}
-                <div className="p-3 bg-purple-50 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-bold text-xs flex-shrink-0">
-                      下3
-                    </div>
-                    <p className="text-xs text-gray-500">我的下三代咨询师（{relationTree.thirdGenerationChildren?.length || 0}人）</p>
-                  </div>
-                  {relationTree.thirdGenerationChildren && relationTree.thirdGenerationChildren.length > 0 ? (
-                    <div className="space-y-1.5 ml-10">
-                      {relationTree.thirdGenerationChildren.map((child: any) => (
-                        <div key={child.id} className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
-                          <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-400 ml-10">无</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-400 text-center py-4">暂无关系树数据</p>
-        )}
-      </section>
-
       <section className="bg-white rounded-2xl shadow-sm p-6">
         <h3 className="text-base font-semibold text-gray-900 mb-2 flex items-center gap-2">
           <User size={18} className="text-orange-500" />
@@ -866,6 +734,138 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
         </p>
       </section>
 
+      {/* 关系树 */}
+      <section className="bg-white rounded-2xl shadow-sm p-6">
+        <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <Users size={18} className="text-orange-500" />
+          我的关系树
+        </h3>
+        {relationTreeLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 size={20} className="animate-spin text-orange-500" />
+            <span className="ml-2 text-sm text-gray-500">加载中...</span>
+          </div>
+        ) : relationTree ? (
+          <div className="space-y-4">
+            {/* ===== 上级关系 ===== */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 mb-2 uppercase">上级关系</p>
+              <div className="space-y-2">
+                {/* 直接邀请人 */}
+                <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-xl">
+                  <div className="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-orange-700 font-bold text-sm flex-shrink-0">
+                    邀
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-0.5">我的直接邀请人</p>
+                    {relationTree.directInviter ? (
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 truncate">{relationTree.directInviter.nickname}</p>
+                        <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded">{LEVEL_NAMES[relationTree.directInviter.level as keyof typeof LEVEL_NAMES] || relationTree.directInviter.level}</span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">无</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 直接上级咨询师 */}
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl">
+                  <div className="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
+                    上
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-0.5">我的直接上级咨询师（上一代）</p>
+                    {relationTree.directParent ? (
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 truncate">{relationTree.directParent.nickname}</p>
+                        <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded">{LEVEL_NAMES[relationTree.directParent.level as keyof typeof LEVEL_NAMES] || relationTree.directParent.level}</span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400">无</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ===== 下级关系 ===== */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 mb-2 uppercase">下级关系</p>
+              <div className="space-y-2">
+                {/* 直接下一代咨询师 */}
+                <div className="p-3 bg-teal-50 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-teal-200 flex items-center justify-center text-teal-700 font-bold text-xs flex-shrink-0">
+                      下1
+                    </div>
+                    <p className="text-xs text-gray-500">我的直接下一代咨询师（{relationTree.directChildren?.length || 0}人）</p>
+                  </div>
+                  {relationTree.directChildren && relationTree.directChildren.length > 0 ? (
+                    <div className="space-y-1.5 ml-10">
+                      {relationTree.directChildren.map((child: any) => (
+                        <div key={child.id} className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
+                          <span className="text-xs px-1.5 py-0.5 bg-teal-100 text-teal-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 ml-10">无</p>
+                  )}
+                </div>
+
+                {/* 下二代咨询师 */}
+                <div className="p-3 bg-green-50 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xs flex-shrink-0">
+                      下2
+                    </div>
+                    <p className="text-xs text-gray-500">我的下二代咨询师（{relationTree.secondGenerationChildren?.length || 0}人）</p>
+                  </div>
+                  {relationTree.secondGenerationChildren && relationTree.secondGenerationChildren.length > 0 ? (
+                    <div className="space-y-1.5 ml-10">
+                      {relationTree.secondGenerationChildren.map((child: any) => (
+                        <div key={child.id} className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
+                          <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 ml-10">无</p>
+                  )}
+                </div>
+
+                {/* 下三代咨询师 */}
+                <div className="p-3 bg-purple-50 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-bold text-xs flex-shrink-0">
+                      下3
+                    </div>
+                    <p className="text-xs text-gray-500">我的下三代咨询师（{relationTree.thirdGenerationChildren?.length || 0}人）</p>
+                  </div>
+                  {relationTree.thirdGenerationChildren && relationTree.thirdGenerationChildren.length > 0 ? (
+                    <div className="space-y-1.5 ml-10">
+                      {relationTree.thirdGenerationChildren.map((child: any) => (
+                        <div key={child.id} className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
+                          <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 ml-10">无</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-4">暂无关系树数据</p>
+        )}
+      </section>
+
       {/* 收款码 section */}
       <section className="bg-white rounded-2xl p-4 shadow-sm">
         <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -948,16 +948,6 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
             </div>
           </div>
         </div>
-      )}
-
-      {/* 卖家订单入口（只有卖家身份可见） */}
-      {user?.isSeller && (
-        <button
-          onClick={() => navigate('/seller/orders')}
-          className="w-full py-3 bg-white border border-blue-100 text-blue-500 font-medium rounded-2xl shadow-sm hover:bg-blue-50 transition-colors inline-flex items-center justify-center gap-2 mb-3"
-        >
-          卖家订单管理
-        </button>
       )}
 
       {/* 邀请码入口 */}

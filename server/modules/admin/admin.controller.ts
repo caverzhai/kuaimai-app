@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -128,6 +129,15 @@ export class AdminController {
     return this.adminService.toggleProductStatus(id);
   }
 
+  @Delete('products/:id')
+  async deleteProduct(
+    @Req() req: Request,
+    @Param('id') id: string,
+  ): Promise<{ success: boolean }> {
+    checkAdmin(req);
+    return this.adminService.deleteProduct(id);
+  }
+
   // ============================================================
   // 商城订单管理
   // ============================================================
@@ -193,6 +203,16 @@ export class AdminController {
   @Get('users/:id')
   async getUserDetail(@Param('id') id: string): Promise<UserInfo> {
     return this.adminService.getUserDetail(id);
+  }
+
+  @Post('users/:id/reset-password')
+  async resetUserPassword(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { newPassword?: string },
+  ): Promise<{ success: boolean }> {
+    checkAdmin(req);
+    return this.adminService.resetUserPassword(id, body.newPassword || '');
   }
 
   // ============================================================

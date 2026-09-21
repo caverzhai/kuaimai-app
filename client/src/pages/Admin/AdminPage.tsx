@@ -315,6 +315,26 @@ const AdminPage = () => {
     }
   }
 
+  // 重置用户密码（用户忘记密码、无短信验证码时的兜底方案）
+  async function handleResetPassword(user: UserInfo) {
+    const newPassword = window.prompt(
+      `将为「${user.nickname}（${user.phone}）」重置密码。\n请输入新密码（至少6位）：`,
+      '123456',
+    );
+    if (newPassword === null) return;
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('新密码长度至少6位');
+      return;
+    }
+    try {
+      const { axiosForBackend } = await import('@lark-apaas/client-toolkit/utils/getAxiosForBackend');
+      await axiosForBackend.post(`/api/admin/users/${user.id}/reset-password`, { newPassword });
+      toast.success('密码已重置为：' + newPassword);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || '重置失败');
+    }
+  }
+
   // 删除用户
   async function handleDeleteUser() {
     if (!deletingUser) return;
@@ -354,6 +374,18 @@ const AdminPage = () => {
     setShowProductForm(false);
     setEditingProduct(null);
     loadTabData('products');
+  }
+
+  async function handleDeleteProduct(product: ProductInfo) {
+    if (!window.confirm(`确定删除商品「${product.name}」吗？删除后不可恢复。`)) return;
+    try {
+      const { axiosForBackend } = await import('@lark-apaas/client-toolkit/utils/getAxiosForBackend');
+      await axiosForBackend.delete(`/api/admin/products/${product.id}`);
+      toast.success('商品已删除');
+      loadTabData('products');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || '删除失败');
+    }
   }
 
   const qrcodeFileRef = useRef<HTMLInputElement>(null);
@@ -508,6 +540,13 @@ const AdminPage = () => {
                             >
                               编辑
                             </button>
+                            <button
+                              onClick={() => handleDeleteProduct(p)}
+                              className="px-3 py-1.5 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition inline-flex items-center gap-1"
+                            >
+                              <Trash2 size={14} />
+                              删除
+                            </button>
                           </div>
                         ))
                       )}
@@ -644,6 +683,12 @@ const AdminPage = () => {
                             className="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 border border-blue-200 rounded hover:bg-blue-50"
                           >
                             修改手机号
+                          </button>
+                          <button
+                            onClick={() => handleResetPassword(u)}
+                            className="text-xs text-amber-600 hover:text-amber-700 px-2 py-1 border border-amber-200 rounded hover:bg-amber-50"
+                          >
+                            重置密码
                           </button>
                           {u.phone !== '13800000000' && (
                             <button

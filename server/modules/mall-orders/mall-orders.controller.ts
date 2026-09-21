@@ -136,6 +136,17 @@ export class MallOrdersController {
   }
 
   @UseGuards(AuthGuard)
+  @Post(':id/seller-ship')
+  async sellerShip(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { logisticsCompany?: string; logisticsNo?: string; shipType?: string },
+  ): Promise<MallOrderInfo> {
+    const sellerId = req.user!.userId;
+    return this.mallOrdersService.shipSellerOrder(sellerId, id, body);
+  }
+
+  @UseGuards(AuthGuard)
   @Get(':id/qrcode')
   async getOrderQrcode(
     @Req() req: Request,
