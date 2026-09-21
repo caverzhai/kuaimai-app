@@ -2,13 +2,16 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# 缓存破坏：每次构建都不同，强制Docker重新复制文件
+ARG CACHEBUST=1
+RUN echo "Cache bust: $CACHEBUST"
+
 # 复制后端代码和共享代码
 COPY server/ ./server/
 COPY shared/ ./shared/
 
-# 验证APK文件是否存在
-RUN ls -la server/public/download/ 2>/dev/null || echo "download目录不存在"
-RUN find /app -name "*.apk" -exec ls -lh {} \; 2>/dev/null || echo "未找到APK文件"
+# 立即验证APK文件大小（确保复制的是最新版本）
+RUN echo "=== APK验证 ===" && ls -la server/public/download/ && APK_SIZE=$(wc -c < server/public/download/kuaimai.apk) && echo "APK大小: $APK_SIZE 字节" && if [ "$APK_SIZE" -lt 9159900 ]; then echo "错误：APK不是最新版本！" && exit 1; fi
 
 # 验证version.json（强制刷新缓存）
 RUN echo "=== version.json 内容 ===" && cat server/public/version.json && echo "=== version.json 结束 ==="
