@@ -3,7 +3,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 # 缓存破坏：每次构建都不同，强制Docker重新复制文件
-ARG CACHEBUST=1
+ARG CACHEBUST=20260921141000
 RUN echo "Cache bust: $CACHEBUST"
 
 # 复制后端代码和共享代码
