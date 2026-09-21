@@ -3,7 +3,7 @@
 const config: CapacitorConfig = {
   appId: 'com.kuaimai.app',
   appName: '快卖',
-  version: '2.24.4',
+  version: '2.28.2',
   webDir: 'dist',
   bundledWebRuntime: false,
   // 显式使用http scheme，确保本地文件正常加载
