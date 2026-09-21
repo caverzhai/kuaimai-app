@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
+import { APP_VERSION_CODE } from '../utils/version';
 
 const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
-const CURRENT_VERSION_CODE = 128; // 2.28.5
 
 interface VersionInfo {
   version: string;
@@ -16,14 +16,18 @@ export default function GlobalUpdateCheck() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   useEffect(() => {
-    // APP启动时立即检查更新（不依赖登录，不依赖native检测）
+    // 只在native APP环境下检查更新，H5网页版不检查
+    const isNativeApp = !!(window as any).Capacitor || !!(window as any).AppUpdate;
+    if (!isNativeApp) return;
+
+    // APP启动时立即检查更新（不依赖登录）
     const doCheck = async () => {
       try {
         const response = await fetch(VERSION_CHECK_URL + '?nocache=' + Date.now(), { cache: 'no-cache' });
         if (!response.ok) return;
         const data = await response.json();
-        // 服务器版本高于当前版本就提示更新
-        if (data.versionCode > CURRENT_VERSION_CODE) {
+        // 服务器版本高于当前版本才提示更新
+        if (data.versionCode > APP_VERSION_CODE) {
           setUpdateInfo(data);
           setShowUpdateModal(true);
         }
