@@ -178,9 +178,7 @@ const Layout = () => {
   // 自动检查更新 - 仅在APP环境中检查，网页版不检查
   useEffect(() => {
     // 只在Capacitor APP环境中检查更新
-    if (!(window as any).Capacitor) {
-      return;
-    }
+    const isNativeApp = (window as any).Capacitor?.isNativePlatform === true || !!window.AppUpdate; if (!isNativeApp) return;
     const doCheckUpdate = async () => {
       try {
         const info = await checkUpdate();

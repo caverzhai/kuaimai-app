@@ -1,7 +1,7 @@
 {
-  "version": "2.28.1",
-  "versionCode": 122,
+  "version": "2.28.2",
+  "versionCode": 123,
   "forceUpdate": true,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "1.修复APP自动更新下载功能 2.优化原生接口注入逻辑 3.改用HttpURLConnection直接下载更稳定"
+  "releaseNotes": "1.修复H5强制更新问题 2.修复APP自动更新检测逻辑 3.优化原生接口注入"
 }

@@ -1,6 +1,6 @@
 // APP 鐗堟湰閰嶇疆
-export const APP_VERSION = '2.28.1';
-export const APP_VERSION_CODE = 122;
+export const APP_VERSION = '2.28.2';
+export const APP_VERSION_CODE = 123;
 
 // 鐗堟湰淇℃伅鎺ュ彛鍦板潃锛堥儴缃插埌鍚庣闈欐€佹枃浠讹級
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
@@ -41,7 +41,8 @@ export function getCurrentVersion(): { versionName: string; versionCode: number 
 // 妫€鏌ユ洿鏂帮紙浠呭湪APP鐜涓嬫鏌ワ紝H5缃戦〉鐗堜笉妫€鏌PP鏇存柊锛?
 export async function checkUpdate(): Promise<VersionInfo | null> {
   // H5缃戦〉鐜涓嶆鏌PP鏇存柊锛岄伩鍏嶆棤闄愬惊鐜彁绀?
-  if (!(window as any).Capacitor && !window.AppUpdate) {
+  const isNativeApp = (window as any).Capacitor?.isNativePlatform === true || !!window.AppUpdate;
+  if (!isNativeApp) {
     return null;
   }
   try {
