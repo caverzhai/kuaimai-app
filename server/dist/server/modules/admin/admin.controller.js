@@ -151,11 +151,11 @@ let AdminController = class AdminController {
     }
     async getSellerList(req, status) {
         checkAdmin(req);
-        let query = this.db.select().from(schema_1.users).where(drizzle_orm_1.sql, is_seller = true);
+        let query = this.db.select().from(schema_1.users).where((0, drizzle_orm_1.sql) `is_seller = true`);
         if (status) {
-            query = this.db.select().from(schema_1.users).where(drizzle_orm_1.sql, is_seller = true, AND, seller_status = );
+            query = this.db.select().from(schema_1.users).where((0, drizzle_orm_1.sql) `is_seller = true AND seller_status = ${status}`);
         }
-        const sellers = await query.orderBy(drizzle_orm_1.sql, _created_at, DESC);
+        const sellers = await query.orderBy((0, drizzle_orm_1.sql) `_created_at DESC`);
         return { success: true, sellers };
     }
     async auditSeller(req, id, body) {
@@ -165,7 +165,7 @@ let AdminController = class AdminController {
             return { success: false, message: '无效的操作类型' };
         }
         const sellerStatus = action === 'approve' ? 'approved' : 'rejected';
-        await this.db.update(schema_1.users).set({ isSeller: true, sellerStatus, sellerAuditRemark: remark ?? null }).where(drizzle_orm_1.sql, id = );
+        await this.db.update(schema_1.users).set({ isSeller: true, sellerStatus }).where((0, drizzle_orm_1.sql) `id = ${id}`);
         return { success: true, sellerStatus, message: action === 'approve' ? '卖家审核通过' : '卖家申请已拒绝' };
     }
 };

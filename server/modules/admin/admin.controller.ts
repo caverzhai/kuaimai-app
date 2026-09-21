@@ -345,11 +345,11 @@ export class AdminController {
   @Get('sellers')
   async getSellerList(@Req() req: Request, @Query('status') status?: string) {
     checkAdmin(req);
-    let query = this.db.select().from(users).where(sql\is_seller = true\);
+    let query = this.db.select().from(users).where(sql`is_seller = true`);
     if (status) {
-      query = this.db.select().from(users).where(sql\is_seller = true AND seller_status = \);
+      query = this.db.select().from(users).where(sql`is_seller = true AND seller_status = ${status}`);
     }
-    const sellers = await query.orderBy(sql\_created_at DESC\);
+    const sellers = await query.orderBy(sql`_created_at DESC`);
     return { success: true, sellers };
   }
 
@@ -362,7 +362,7 @@ export class AdminController {
       return { success: false, message: '无效的操作类型' };
     }
     const sellerStatus = action === 'approve' ? 'approved' : 'rejected';
-    await this.db.update(users).set({ isSeller: true, sellerStatus, sellerAuditRemark: remark ?? null }).where(sql\id = \);
+    await this.db.update(users).set({ isSeller: true, sellerStatus }).where(sql`id = ${id}`);
     return { success: true, sellerStatus, message: action === 'approve' ? '卖家审核通过' : '卖家申请已拒绝' };
   }
 }
