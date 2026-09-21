@@ -159,7 +159,7 @@ const RegisterPage = () => {
             快
           </div>
           <h1 className="text-2xl font-bold text-gray-900">创建账号</h1>
-          <p className="mt-2 text-sm text-gray-500">加入快卖，开启神秘创收之旅</p>
+          <p className="mt-2 text-sm text-gray-500">加入AI快卖，开启神秘创收之旅</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8">
@@ -319,7 +319,7 @@ const RegisterPage = () => {
           </div>
 
           <div className="mt-4 text-center text-xs text-gray-400">
-            版本 v{APP_VERSION}
+            Powered by WebShark Tech | www.webshark.tech<br/>版本 v{APP_VERSION}
           </div>
         </div>
       </div>

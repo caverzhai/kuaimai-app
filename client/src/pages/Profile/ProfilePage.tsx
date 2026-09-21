@@ -975,7 +975,7 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
             </div>
             <div>
               <p className="text-sm font-medium text-gray-900">检查更新</p>
-              <p className="text-xs text-gray-500">当前版本 v{APP_VERSION}</p>
+              <p className="text-xs text-gray-500">当前Powered by WebShark Tech | www.webshark.tech<br/>版本 v{APP_VERSION}</p>
             </div>
           </div>
           <button

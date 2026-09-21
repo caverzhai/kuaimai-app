@@ -159,7 +159,7 @@ export default function MallPage({ visible = true }: { visible?: boolean }) {
           <div className="flex items-center gap-3">
             <ShoppingBag className="w-6 h-6 text-orange-500 flex-shrink-0" />
             <h1 className="text-lg font-bold text-gray-900 hidden sm:block">
-              快卖商城
+              AI快卖商城
             </h1>
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

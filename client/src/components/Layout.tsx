@@ -233,7 +233,7 @@ const Layout = () => {
               <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">
                 快
               </div>
-              <span className="text-lg font-bold text-gray-900">快卖</span>
+              <span className="text-lg font-bold text-gray-900">AI快卖</span>
             </button>
 
             <div className="flex items-center gap-2">

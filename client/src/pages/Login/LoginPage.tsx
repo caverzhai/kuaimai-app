@@ -49,7 +49,7 @@ const LoginPage = () => {
             快
           </div>
           <h1 className="text-2xl font-bold text-gray-900">欢迎回来</h1>
-          <p className="mt-2 text-sm text-gray-500">登录你的快卖账号</p>
+          <p className="mt-2 text-sm text-gray-500">登录你的AI快卖账号</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8">
@@ -120,7 +120,7 @@ const LoginPage = () => {
           </div>
 
           <div className="mt-4 text-center text-xs text-gray-400">
-            版本 v{APP_VERSION}
+            Powered by WebShark Tech | www.webshark.tech<br/>版本 v{APP_VERSION}
           </div>
         </div>
       </div>

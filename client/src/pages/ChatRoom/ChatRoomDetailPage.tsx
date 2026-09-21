@@ -254,7 +254,7 @@ const ChatRoomDetailPage: React.FC = () => {
       } catch (permErr: any) {
         isRecordingRef.current = false;
         if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
-          setError('麦克风权限被拒绝，请在手机设置中允许快卖使用麦克风');
+          setError('麦克风权限被拒绝，请在手机设置中允许AI快卖使用麦克风');
         } else if (permErr.name === 'NotFoundError') {
           setError('未检测到麦克风设备');
         } else {
