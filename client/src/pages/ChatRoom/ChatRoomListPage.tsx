@@ -10,6 +10,7 @@ import {
   getRoomApplications,
   approveRoomApplication,
   rejectRoomApplication,
+  createChatRoom,
 } from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCache, setCache } from '../../utils/cache';
@@ -120,6 +121,11 @@ const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) =
   const [personalRoomName, setPersonalRoomName] = useState('');
   const [error, setError] = useState('');
   const [showCloseConfirm, setShowCloseConfirm] = useState<string | null>(null);
+  // 管理员直接创建聊天室
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createRoomName, setCreateRoomName] = useState('');
+  const [createRoomDesc, setCreateRoomDesc] = useState('');
+  const [createSubmitting, setCreateSubmitting] = useState(false);
 
   // 申请表单状态
   const [applyRoomName, setApplyRoomName] = useState('');
@@ -271,6 +277,34 @@ const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) =
     }
   };
 
+  // 管理员直接创建公开聊天室（立即上线、永久有效）
+  const handleCreateRoom = async () => {
+    if (!createRoomName.trim()) {
+      setError('请输入聊天室名称');
+      return;
+    }
+    setCreateSubmitting(true);
+    try {
+      await createChatRoom({
+        name: createRoomName.trim(),
+        description: createRoomDesc.trim() || undefined,
+        type: 'public',
+      });
+      setShowCreateModal(false);
+      setCreateRoomName('');
+      setCreateRoomDesc('');
+      setError('');
+      toast.success('聊天室创建成功，已立即上线');
+      loadData();
+    } catch (err: any) {
+      const msg = err.response?.data?.message || '创建失败，请重试';
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setCreateSubmitting(false);
+    }
+  };
+
   const toggleFriend = (friendId: string) => {
     setSelectedFriends((prev) =>
       prev.includes(friendId)
@@ -356,13 +390,23 @@ const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) =
               <Users className="w-5 h-5" />
             </button>
           )}
-          <button
-            onClick={() => setShowApplyModal(true)}
-            className="flex items-center gap-1 px-3 py-2 bg-orange-500 text-white rounded-full text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span>申请我的聊天室</span>
-          </button>
+          {isAdmin ? (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-1 px-3 py-2 bg-green-500 text-white rounded-full text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span>创建聊天室</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowApplyModal(true)}
+              className="flex items-center gap-1 px-3 py-2 bg-orange-500 text-white rounded-full text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span>申请我的聊天室</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -739,6 +783,66 @@ const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) =
                 className="w-full py-3 bg-blue-500 text-white rounded-lg font-bold"
               >
                 创建聊天室
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 管理员直接创建聊天室弹窗 */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowCreateModal(false)}>
+          <div className="bg-white w-full max-w-md rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">创建聊天室</h3>
+              <button onClick={() => setShowCreateModal(false)}>
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            {error && (
+              <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+              <p className="text-xs text-green-700 leading-relaxed">
+                管理员创建的聊天室立即上线、长期有效，无需审核和时间限制。
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  聊天室名称 <span className="text-gray-400 text-xs">（12个汉字以内）</span>
+                </label>
+                <input
+                  type="text"
+                  value={createRoomName}
+                  onChange={(e) => setCreateRoomName(e.target.value)}
+                  placeholder="请输入聊天室名称"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  maxLength={12}
+                />
+                <div className="text-right text-xs text-gray-400 mt-1">{createRoomName.length}/12</div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  聊天室说明 <span className="text-gray-400 text-xs">（50字以内，选填）</span>
+                </label>
+                <textarea
+                  value={createRoomDesc}
+                  onChange={(e) => setCreateRoomDesc(e.target.value)}
+                  placeholder="请简要说明聊天室的主题和内容"
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 h-20 resize-none"
+                  maxLength={50}
+                />
+                <div className="text-right text-xs text-gray-400 mt-1">{createRoomDesc.length}/50</div>
+              </div>
+              <button
+                onClick={handleCreateRoom}
+                disabled={createSubmitting || !createRoomName.trim()}
+                className="w-full py-3 bg-green-500 text-white rounded-lg font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {createSubmitting ? '创建中...' : '立即创建'}
               </button>
             </div>
           </div>

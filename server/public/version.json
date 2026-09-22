@@ -1,8 +1,8 @@
 {
-  "version": "2.34.0",
-  "versionCode": 138,
+  "version": "2.34.1",
+  "versionCode": 139,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "1.修复卖家发货按钮被底部导航栏遮挡；2.卖家发货物流公司改为下拉选择（与平台一致）；3.买家订单物流信息升级：显示快递公司和运单号，支持一键复制单号、查询物流轨迹。",
+  "releaseNotes": "1.修复九级咨询师等级显示为初级的问题；2.聊天室恢复管理员直接创建功能（管理员创建立即上线、永久有效，普通用户仍走申请审核）。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 138
+  "forceUpdateBelowCode": 139
 }

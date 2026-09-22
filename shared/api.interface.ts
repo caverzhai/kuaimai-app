@@ -341,6 +341,7 @@ export const LEVEL_NAMES: Record<string, string> = {
   level_6: '6级咨询师',
   level_7: '7级咨询团',
   level_8: '8级咨询团',
+  level_9: '9级咨询团',
 };
 
 export const LEVEL_LAYERS: Record<string, number> = {
@@ -349,6 +350,7 @@ export const LEVEL_LAYERS: Record<string, number> = {
   level_6: 6,
   level_7: 7,
   level_8: 8,
+  level_9: 9,
 };
 
 export const MALL_ORDER_STATUS = {
