@@ -305,7 +305,7 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
 
   const showConsultant = user && user.level !== 'junior';
   const showLevel7 =
-    user && (user.level === 'level_7' || user.level === 'level_8');
+    user && (user.level === 'level_7' || user.level === 'level_8' || user.level === 'level_9');
 
   // 辅助函数：生成字段的 onChange 处理函数
   const handleFieldChange = (field: keyof UpdateProfileDTO) => (value: string) => {

@@ -1,8 +1,8 @@
 {
-  "version": "2.34.8",
-  "versionCode": 146,
+  "version": "2.34.9",
+  "versionCode": 147,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "修复高级咨询师（7-9级咨询团）未上传公司收款码时，购买弹窗不显示其个人微信/支付宝收款码的问题：公司码优先，无公司码自动回退个人码。",
+  "releaseNotes": "补齐9级咨询团的公司收款码、营业执照上传入口（此前仅7、8级可见）。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 146
+  "forceUpdateBelowCode": 147
 }
