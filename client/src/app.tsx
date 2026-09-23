@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
 
 import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import GlobalUpdateCheck from './components/GlobalUpdateCheck';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import SplashPage from './pages/Splash/SplashPage';
 import LoginPage from './pages/Login/LoginPage';
 import RegisterPage from './pages/Register/RegisterPage';
 import ProductDetailPage from './pages/ProductDetail/ProductDetailPage';
@@ -26,6 +27,9 @@ import ForgotPasswordPage from './pages/ForgotPassword/ForgotPasswordPage';
 import NotFound from './pages/NotFound/NotFound';
 
 const RoutesComponent = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   useEffect(() => {
     const token = localStorage.getItem('kuaimai_token');
     if (token) {
@@ -33,11 +37,23 @@ const RoutesComponent = () => {
     }
   }, []);
 
+  // APP模式下，首次进入首页时自动跳转到开机图
+  useEffect(() => {
+    if ((window as any).Capacitor && location.pathname === '/') {
+      const shown = sessionStorage.getItem('splash_shown');
+      if (!shown) {
+        sessionStorage.setItem('splash_shown', '1');
+        navigate('/splash', { replace: true });
+      }
+    }
+  }, [location.pathname, navigate]);
+
   return (
     <ErrorBoundary>
       <GlobalUpdateCheck />
       <AuthProvider>
         <Routes>
+          <Route path="splash" element={<SplashPage />} />
           <Route element={<Layout />}>
           {/* 以下4个页面使用Layout中的缓存渲染，路由只用于路径匹配 */}
           <Route index element={<div />} />

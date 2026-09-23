@@ -1,8 +1,8 @@
 {
-  "version": "2.34.11",
-  "versionCode": 149,
+  "version": "2.34.12",
+  "versionCode": 150,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "推广费机制修复：卖家未提交且逾期自动下架；卖家提交后平台20分钟不审核自动通过；定时任务错过窗口自动补跑。",
+  "releaseNotes": "新增动态开机图：5秒橙金芯片动画，可跳过；推广费逾期下架+20分钟自动审核机制修复。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 149
+  "forceUpdateBelowCode": 150
 }
