@@ -1,8 +1,8 @@
 {
-  "version": "2.34.10",
-  "versionCode": 148,
+  "version": "2.34.11",
+  "versionCode": 149,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "商城订单创建失败时显示后端具体错误原因；订单确认页校验商品下架状态；修复平台自营商品sellerId空字符串隐患。",
+  "releaseNotes": "推广费机制修复：卖家未提交且逾期自动下架；卖家提交后平台20分钟不审核自动通过；定时任务错过窗口自动补跑。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 148
+  "forceUpdateBelowCode": 149
 }

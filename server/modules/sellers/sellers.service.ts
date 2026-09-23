@@ -483,6 +483,43 @@ export class SellersService {
     return { warehouseCount };
   }
 
+  /**
+   * 自动确认超过20分钟未审核的推广费（pending_review -> confirmed）
+   * 卖家提交支付凭证后，平台20分钟不审核则自动通过
+   */
+  async autoConfirmPendingReviewFees() {
+    const now = new Date();
+    const twentyMinutesAgo = new Date(now.getTime() - 20 * 60 * 1000);
+
+    const overdueReview = await this.db
+      .select()
+      .from(managementFees)
+      .where(
+        and(
+          eq(managementFees.status, MANAGEMENT_FEE_STATUS.PENDING_REVIEW),
+          lt(managementFees.paidAt, twentyMinutesAgo),
+        ),
+      );
+
+    let confirmedCount = 0;
+    for (const fee of overdueReview) {
+      await this.db
+        .update(managementFees)
+        .set({
+          status: MANAGEMENT_FEE_STATUS.CONFIRMED,
+          confirmedAt: now,
+        })
+        .where(eq(managementFees.id, fee.id));
+      confirmedCount++;
+      this.logger.log(`推广费超时20分钟自动确认: feeId=${fee.id}, sellerId=${fee.sellerId}, amount=${fee.feeAmount}`);
+    }
+
+    if (confirmedCount > 0) {
+      this.logger.log(`推广费自动确认完成，共确认 ${confirmedCount} 条`);
+    }
+    return { confirmedCount };
+  }
+
   // ==================== 统计 ====================
 
   /** 获取商家统计数据 */

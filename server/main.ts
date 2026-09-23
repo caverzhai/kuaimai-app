@@ -278,16 +278,14 @@ async function bootstrap() {
 
     setInterval(async () => {
       try {
+        // 每分钟检查：pending_review超过20分钟自动确认通过
+        await sellersService.autoConfirmPendingReviewFees();
+        // 每分钟检查：是否有逾期未支付(pending)的推广费，有则下架商品（不再限12点窗口，错过也能补跑）
+        await sellersService.autoWarehouseOverdueFees();
+        // 每分钟检查：今日是否已生成昨日推广费，未生成且已过0点则补生成
         const nowBj = new Date(Date.now() + 8 * 3600 * 1000);
-        const bjHour = nowBj.getUTCHours();
-        const bjMinute = nowBj.getUTCMinutes();
-        // 北京时间0点0分-0点5分之间，生成昨日管理费（8%推广费）
-        if (bjHour === 0 && bjMinute < 5) {
+        if (nowBj.getUTCHours() >= 0) {
           await sellersService.generateDailyManagementFees();
-        }
-        // 北京时间12点0分-12点5分之间，检查超时未支付管理费，自动下架商品
-        if (bjHour === 12 && bjMinute < 5) {
-          await sellersService.autoWarehouseOverdueFees();
         }
       } catch (e) {
         logger.error(`商家管理费定时任务异常: ${e}`);
