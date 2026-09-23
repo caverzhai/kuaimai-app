@@ -13,6 +13,7 @@ export default function SellerFeesPage() {
   const [screenshotUrl, setScreenshotUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [qrError, setQrError] = useState(false);
 
   const loadFees = async () => {
     setLoading(true);
@@ -31,11 +32,14 @@ export default function SellerFeesPage() {
   const openPay = async (fee: any) => {
     setPayingFee(fee);
     setScreenshotUrl('');
+    setQrError(false);
+    setMallQrcode(null);
     try {
       const qr = await getPlatformQrcode('mall_platform');
       setMallQrcode(qr);
     } catch (e) {
-      toast.error('加载平台收款码失败');
+      setQrError(true);
+      toast.error('加载平台收款码失败，请重试');
     }
   };
 
@@ -185,8 +189,8 @@ export default function SellerFeesPage() {
 
       {/* 支付弹窗 */}
       {payingFee && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => !submitting && setPayingFee(null)}>
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/60" onClick={() => !submitting && setPayingFee(null)}>
+          <div className="bg-white w-full max-w-lg rounded-t-2xl p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold">支付推广费</h3>
               <button onClick={() => !submitting && setPayingFee(null)} className="text-gray-400 text-2xl leading-none">&times;</button>
@@ -199,7 +203,12 @@ export default function SellerFeesPage() {
             <div className="text-center mb-4">
               <p className="text-sm text-gray-700 mb-2 font-medium">请扫描下方平台收款码支付</p>
               {mallQrcode?.wechatQrcodeUrl ? (
-                <img src={mallQrcode.wechatQrcodeUrl} alt="平台收款码" className="w-48 h-48 mx-auto rounded-xl border border-gray-200" />
+                <img src={mallQrcode.wechatQrcodeUrl} alt="平台收款码" className="w-48 h-auto max-h-72 mx-auto rounded-xl border border-gray-200 object-contain bg-white" />
+              ) : qrError ? (
+                <div className="w-48 mx-auto rounded-xl border border-red-200 bg-red-50 py-6 flex flex-col items-center justify-center">
+                  <p className="text-red-500 text-sm mb-2">收款码加载失败</p>
+                  <button onClick={() => openPay(payingFee)} className="text-xs bg-orange-500 text-white px-3 py-1 rounded-lg">点击重试</button>
+                </div>
               ) : (
                 <div className="w-48 h-48 mx-auto rounded-xl border border-gray-200 flex items-center justify-center text-gray-400 text-sm">收款码加载中...</div>
               )}

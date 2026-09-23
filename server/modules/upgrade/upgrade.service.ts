@@ -33,7 +33,7 @@ interface TaskDefinition {
   taskType: string;
   title: string;
   amount: string;
-  targetKind: 'mall' | 'inviter' | 'ancestor_1' | 'ancestor_2' | 'ancestor_3';
+  targetKind: string;
 }
 
 const LEVEL_ORDER: string[] = [
@@ -43,74 +43,62 @@ const LEVEL_ORDER: string[] = [
   LEVELS.LEVEL_6,
   LEVELS.LEVEL_7,
   LEVELS.LEVEL_8,
+  LEVELS.LEVEL_9,
 ];
 
-function buildTaskDefs(
-  mallAmount: string,
-  inviterAmount: string,
-  parentAmount: string,
-  grandParentAmount: string,
-  greatGrandParentAmount: string | null,
-): TaskDefinition[] {
-  const defs: TaskDefinition[] = [
-    {
-      taskIndex: 0,
-      taskType: TASK_TYPE.MALL_PURCHASE,
-      title: `商城购买${mallAmount}元商品`,
-      amount: mallAmount,
-      targetKind: 'mall',
-    },
-    {
-      taskIndex: 1,
-      taskType: TASK_TYPE.CONSULT_SERVICE,
-      title: `向直推人购买${inviterAmount}元咨询服务`,
-      amount: inviterAmount,
-      targetKind: 'inviter',
-    },
-    {
-      taskIndex: 2,
-      taskType: TASK_TYPE.CONSULT_SERVICE,
-      title: `向上级购买${parentAmount}元咨询服务`,
-      amount: parentAmount,
-      targetKind: 'ancestor_1',
-    },
-    {
-      taskIndex: 3,
-      taskType: TASK_TYPE.CONSULT_SERVICE,
-      title: `向上上级购买${grandParentAmount}元咨询服务`,
-      amount: grandParentAmount,
-      targetKind: 'ancestor_2',
-    },
-  ];
-  if (greatGrandParentAmount) {
+/**
+ * 生成目标级别 L（4-9）的升级任务定义
+ *  - 商品金额  mall   = 200 * 2^(L-4)
+ *  - 入行老师(直推)    = mall * 1.5
+ *  - 团队树上1级(直接上级) = mall
+ *  - 上2级 ~ 上(L-1)级     = mall / 2
+ */
+function buildStageDefs(L: number): TaskDefinition[] {
+  const mall = 200 * Math.pow(2, L - 4);
+  const inviter = mall * 1.5;
+  const upper = mall / 2;
+  const defs: TaskDefinition[] = [];
+
+  // 0号：商城购买商品
+  defs.push({
+    taskIndex: 0,
+    taskType: TASK_TYPE.MALL_PURCHASE,
+    title: `商城购买${mall}元商品`,
+    amount: String(mall),
+    targetKind: 'mall',
+  });
+  // 1号：向入行老师（直推人）购买
+  defs.push({
+    taskIndex: 1,
+    taskType: TASK_TYPE.CONSULT_SERVICE,
+    title: `向入行老师购买${inviter}元咨询服务`,
+    amount: String(inviter),
+    targetKind: 'inviter',
+  });
+  // 2号起：团队树往上 L-1 级
+  for (let k = 1; k <= L - 1; k += 1) {
+    const amt = k === 1 ? mall : upper;
     defs.push({
-      taskIndex: 4,
+      taskIndex: 1 + k,
       taskType: TASK_TYPE.CONSULT_SERVICE,
-      title: `向上上上级购买${greatGrandParentAmount}元咨询服务`,
-      amount: greatGrandParentAmount,
-      targetKind: 'ancestor_3',
+      title: `向上${k}级咨询师购买${amt}元咨询服务`,
+      amount: String(amt),
+      targetKind: `ancestor_${k}`,
     });
   }
   return defs;
 }
 
-const TASK_DEFINITIONS: Record<string, TaskDefinition[]> = {
-  [`${LEVELS.JUNIOR}->${LEVELS.LEVEL_4}`]: buildTaskDefs(
-    '200', '300', '200', '100', '100',
-  ),
-  [`${LEVELS.LEVEL_4}->${LEVELS.LEVEL_5}`]: buildTaskDefs(
-    '600', '1200', '600', '300', null,
-  ),
-  [`${LEVELS.LEVEL_5}->${LEVELS.LEVEL_6}`]: buildTaskDefs(
-    '1800', '3600', '1800', '900', null,
-  ),
-  [`${LEVELS.LEVEL_6}->${LEVELS.LEVEL_7}`]: buildTaskDefs(
-    '5400', '10800', '5400', '2700', null,
-  ),
-  [`${LEVELS.LEVEL_7}->${LEVELS.LEVEL_8}`]: buildTaskDefs(
-    '16200', '32400', '10800', '5400', null,
-  ),
-};
+const TASK_DEFINITIONS: Record<string, TaskDefinition[]> = (() => {
+  const map: Record<string, TaskDefinition[]> = {};
+  for (let i = 1; i < LEVEL_ORDER.length; i += 1) {
+    const from = LEVEL_ORDER[i - 1];
+    const to = LEVEL_ORDER[i];
+    map[`${from}->${to}`] = buildStageDefs(i + 3); // i=1 -> L=4
+  }
+  return map;
+})();
+
 
 const UNAVAILABLE_STATUS = 'unavailable';
 
@@ -287,6 +275,18 @@ export class UpgradeService {
     return {
       success: true,
       message: `已删除 ${result.count} 条升级任务，下次访问任务中心时会重新生成`,
+    };
+  }
+
+  /**
+   * 管理员：清空全部用户的升级任务（规则大改后用于全量重新生成）
+   */
+  async resetAllTasks(): Promise<{ success: boolean; message: string }> {
+    const result = await this.db.delete(upgradeTasks);
+    this.logger.log(`Reset ALL upgrade tasks, deleted ${result.count} rows`);
+    return {
+      success: true,
+      message: `已清空全部升级任务（${result.count} 条），将按新规则重新生成`,
     };
   }
 
@@ -551,12 +551,9 @@ export class UpgradeService {
         targetId = null;
       } else if (def.targetKind === 'inviter') {
         targetId = user?.inviterId ?? null;
-      } else if (def.targetKind === 'ancestor_1') {
-        targetId = this.getAncestorFromPath(teamRow?.path, 1) ?? null;
-      } else if (def.targetKind === 'ancestor_2') {
-        targetId = this.getAncestorFromPath(teamRow?.path, 2) ?? null;
-      } else if (def.targetKind === 'ancestor_3') {
-        targetId = this.getAncestorFromPath(teamRow?.path, 3) ?? null;
+      } else if (def.targetKind.startsWith('ancestor_')) {
+        const depth = Number(def.targetKind.slice('ancestor_'.length));
+        targetId = this.getAncestorFromPath(teamRow?.path, depth) ?? null;
       }
 
       // For consult tasks without a target, assign to admin (零号线)

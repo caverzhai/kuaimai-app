@@ -1,8 +1,8 @@
 {
-  "version": "2.34.1",
-  "versionCode": 139,
+  "version": "2.34.6",
+  "versionCode": 144,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "1.修复九级咨询师等级显示为初级的问题；2.聊天室恢复管理员直接创建功能（管理员创建立即上线、永久有效，普通用户仍走申请审核）。",
+  "releaseNotes": "1.修正全部升级任务金额（商品按2倍递增：200/400/800/1600/3200/6400）；2.升级任务补齐团队树上级咨询师（最高9级、共10项任务）；3.任务标题改为入行老师、上N级咨询师。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 139
+  "forceUpdateBelowCode": 144
 }

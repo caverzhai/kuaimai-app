@@ -415,7 +415,7 @@ export async function getFinanceInfo() {
 export async function getPlatformQrcode(type: string) {
   try {
     const response = await axiosForBackend({
-      url: `/api/admin/qrcodes/${type}`,
+      url: `/api/platform-qrcode/${type}`,
       method: 'GET',
     });
     return response.data;
@@ -580,7 +580,7 @@ export async function reviewCompanyAudit(id: string, passed: boolean, remark?: s
 export async function updatePlatformQrcode(type: string, data: Record<string, unknown>) {
   try {
     const response = await axiosForBackend({
-      url: `/api/admin/qrcodes/${type}`,
+      url: `/api/platform-qrcode/${type}`,
       method: 'PATCH',
       data,
     });

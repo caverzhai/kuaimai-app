@@ -32,6 +32,8 @@ import type {
 import {
   MALL_ORDER_STATUS_NAMES,
   CONSULT_ORDER_STATUS_NAMES,
+  MALL_ORDER_STATUS,
+  CONSULT_ORDER_STATUS,
   LEVEL_NAMES,
 } from '@shared/api.interface';
 import {
@@ -133,7 +135,7 @@ const AdminPage = () => {
           const orders = data.items || [];
           setMallOrders(orders);
           // 检测新的待审核订单
-          const pendingCount = orders.filter(o => o.status === 'PENDING_REVIEW').length;
+          const pendingCount = orders.filter(o => o.status === MALL_ORDER_STATUS.PENDING_REVIEW).length;
           if (prevPendingReviewCountRef.current > 0 && pendingCount > prevPendingReviewCountRef.current) {
             playNewTaskSound();
             toast.info('有新的商城订单待审核！');
@@ -156,7 +158,7 @@ const AdminPage = () => {
           const orders = data.items || [];
           setConsultOrders(orders);
           // 检测新的待审核咨询订单
-          const pendingCount = orders.filter(o => o.status === 'PENDING_CONFIRM').length;
+          const pendingCount = orders.filter(o => o.status === CONSULT_ORDER_STATUS.PENDING_CONFIRM).length;
           if (prevPendingConsultCountRef.current > 0 && pendingCount > prevPendingConsultCountRef.current) {
             playNewTaskSound();
             toast.info('有新的咨询订单待审核！');

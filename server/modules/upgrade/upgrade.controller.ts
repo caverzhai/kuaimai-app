@@ -44,4 +44,11 @@ export class UpgradeController {
   async resetTasks(@Param('userId') userId: string): Promise<{ success: boolean; message: string }> {
     return this.upgradeService.resetUserTasks(userId);
   }
+
+  // 管理员接口：清空全部用户的升级任务（规则大改后全量重新生成）
+  @Delete('reset-all')
+  @UseGuards(AuthGuard, AdminGuard)
+  async resetAllTasks(): Promise<{ success: boolean; message: string }> {
+    return this.upgradeService.resetAllTasks();
+  }
 }

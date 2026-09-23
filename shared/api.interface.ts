@@ -332,6 +332,7 @@ export const LEVELS = {
   LEVEL_6: 'level_6',
   LEVEL_7: 'level_7',
   LEVEL_8: 'level_8',
+  LEVEL_9: 'level_9',
 } as const;
 
 export const LEVEL_NAMES: Record<string, string> = {
