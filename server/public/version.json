@@ -1,8 +1,8 @@
 {
-  "version": "2.34.6",
-  "versionCode": 144,
+  "version": "2.34.7",
+  "versionCode": 145,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "1.修正全部升级任务金额（商品按2倍递增：200/400/800/1600/3200/6400）；2.升级任务补齐团队树上级咨询师（最高9级、共10项任务）；3.任务标题改为入行老师、上N级咨询师。",
+  "releaseNotes": "升级任务标题统一：直推称入行老师，团队树上级改为1星、2星、N星咨询师（去掉上级/上上级字样）。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 144
+  "forceUpdateBelowCode": 145
 }

@@ -81,7 +81,7 @@ function buildStageDefs(L: number): TaskDefinition[] {
     defs.push({
       taskIndex: 1 + k,
       taskType: TASK_TYPE.CONSULT_SERVICE,
-      title: `向上${k}级咨询师购买${amt}元咨询服务`,
+      title: `向${k}星咨询师购买${amt}元咨询服务`,
       amount: String(amt),
       targetKind: `ancestor_${k}`,
     });
