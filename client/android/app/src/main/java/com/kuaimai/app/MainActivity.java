@@ -53,6 +53,17 @@ public class MainActivity extends BridgeActivity {
                         webSettings.setJavaScriptEnabled(true);
                         webSettings.setDomStorageEnabled(true);
                         webSettings.setDatabaseEnabled(true);
+                        // 性能优化：缓存策略
+                        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+                        webSettings.setAllowFileAccess(true);
+                        webSettings.setAllowContentAccess(true);
+                        webSettings.setLoadsImagesAutomatically(true);
+                        webSettings.setBlockNetworkImage(false);
+                        webSettings.setMediaPlaybackRequiresUserGesture(false);
+                        // 启用硬件加速
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                            webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null);
+                        }
 
                         // 注册原生 HTTP 桥接接口
                         webView.addJavascriptInterface(new HttpBridge(), "NativeHttp");

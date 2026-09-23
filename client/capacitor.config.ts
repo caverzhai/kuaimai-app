@@ -1,9 +1,9 @@
-﻿import type { CapacitorConfig } from '@capacitor/cli';
+import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.kuaimai.app',
   appName: '快卖',
-  version: '2.28.2',
+  version: '2.34.15',
   webDir: 'dist',
   bundledWebRuntime: false,
   // 显式使用http scheme，确保本地文件正常加载

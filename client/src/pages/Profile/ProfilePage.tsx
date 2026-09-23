@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef , memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   User,
@@ -34,7 +34,7 @@ import { Image } from '@client/src/components/ui/image';
 import { FieldRow, ImageFieldRow } from '@client/src/components/ProfileFieldRow';
 import { APP_VERSION, checkUpdate, downloadAndInstall, type VersionInfo } from '@client/src/utils/version';
 
-const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
+const ProfilePage = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading, refreshUser, logout, updateUser } = useAuth();
   const [editing, setEditing] = useState(false);
@@ -251,7 +251,6 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
       setRelationTree(cached);
     }
     // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
-    if (!visible) return;
     const fetchRelationTree = async () => {
       setRelationTreeLoading(true);
       try {
@@ -266,7 +265,7 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
       }
     };
     fetchRelationTree();
-  }, [user, visible]);
+  }, [user]);
 
   const handleSave = async () => {
     setError('');
@@ -1038,4 +1037,4 @@ const ProfilePage = ({ visible = true }: { visible?: boolean }) => {
   );
 };
 
-export default ProfilePage;
+export default memo(ProfilePage);

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -68,7 +69,7 @@ interface RoomApplication {
   createdAt: string;
 }
 
-const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
+const ChatRoomListPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -179,7 +180,6 @@ const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) =
       }
     }
     // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
-    if (!visible) return;
     // 后台从服务器更新
     loadData(true);
     const interval = setInterval(() => {
@@ -188,7 +188,7 @@ const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) =
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [loadData, showApplyModal, showPersonalModal, showCloseConfirm, user, visible]);
+  }, [loadData, showApplyModal, showPersonalModal, showCloseConfirm, user]);
 
   const handleSubmitApplication = async () => {
     if (!applyRoomName.trim()) {
@@ -881,4 +881,4 @@ const ChatRoomListPage: React.FC<{ visible?: boolean }> = ({ visible = true }) =
   );
 };
 
-export default ChatRoomListPage;
+export default memo(ChatRoomListPage);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -97,7 +97,7 @@ function ConsultantContact({ consultantId }: { consultantId: string }) {
   );
 }
 
-export default function TaskCenterPage({ visible = true }: { visible?: boolean }) {
+function TaskCenterPage() {
   const { user, loading: authLoading, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('tasks');
@@ -173,6 +173,7 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
   const prevTaskCountRef = useRef<number>(0);
   const prevReviewCountRef = useRef<number>(0);
   const prevCompletedCountRef = useRef<number>(0);
+  const taskHasLoadedRef = useRef(false);
 
   // 计算待办总数
   const pendingTaskCount = upgradeData
@@ -250,9 +251,9 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
   }, [myMallOrders]);
 
   // 加载升级任务
-  const fetchUpgradeData = useCallback(async () => {
+  const fetchUpgradeData = useCallback(async (silent = false) => {
     if (!user) return;
-    setUpgradeLoading(true);
+    if (!silent) setUpgradeLoading(true);
     try {
       const [upgradeResult, ordersResult, mallOrdersResult] = await Promise.all([
         apiGetUpgradeCenter(),
@@ -295,14 +296,14 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
     } catch (err) {
       logger.error('获取升级任务失败', err);
     } finally {
-      setUpgradeLoading(false);
+      if (!silent) setUpgradeLoading(false);
     }
   }, [user, refreshUser]);
 
   // 加载待审核订单
-  const fetchReviewOrders = useCallback(async () => {
+  const fetchReviewOrders = useCallback(async (silent = false) => {
     if (!user) return;
-    setReviewLoading(true);
+    if (!silent) setReviewLoading(true);
     try {
       const result = await getReceivedConsultOrders({
         status: [CONSULT_ORDER_STATUS.PENDING_CONFIRM, CONSULT_ORDER_STATUS.PENDING_REVIEW].join(','),
@@ -313,7 +314,7 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
       logger.error('获取待审核订单失败', err);
       setReviewOrders([]);
     } finally {
-      setReviewLoading(false);
+      if (!silent) setReviewLoading(false);
     }
   }, [user]);
 
@@ -424,14 +425,18 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
       if (cached.myMallOrders) setMyMallOrders(cached.myMallOrders);
     }
     // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
-    if (!visible) return;
-    // 后台从服务器更新
-    fetchUpgradeData();
-    fetchReviewOrders();
+    // 首次加载显示loading；切换tab回来只静默更新，不闪loading
+    if (upgradeData?.tasks?.length > 0) {
+      fetchUpgradeData(true);
+      fetchReviewOrders(true);
+    } else {
+      fetchUpgradeData();
+      fetchReviewOrders();
+    }
     generateNotifications();
     // 注意：不在这里调用 refreshUser，避免无限循环
     // AuthContext 已经在启动时调用了 fetchUser
-  }, [authLoading, user, fetchUpgradeData, fetchReviewOrders, generateNotifications, visible]);
+  }, [authLoading, user, fetchUpgradeData, fetchReviewOrders, generateNotifications]);
 
   // 用于记录上次刷新用户信息的时间
   const lastUserRefreshRef = useRef<number>(0);
@@ -479,7 +484,7 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
     };
   }, [user, fetchUpgradeData, fetchReviewOrders, refreshUser]);
 
-  // 倒计时定时器（每秒更新）
+  // 倒计时定时器（每秒更新）— 只在页面可见时运行，避免后台空转消耗CPU
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(Date.now());
@@ -1223,3 +1228,5 @@ export default function TaskCenterPage({ visible = true }: { visible?: boolean }
     </div>
   );
 }
+
+export default memo(TaskCenterPage);

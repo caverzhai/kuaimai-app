@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search,
@@ -36,7 +36,7 @@ const FIXED_CATEGORIES = [
   { id: 'other', name: '其它' },
 ];
 
-export default function MallPage({ visible = true }: { visible?: boolean }) {
+function MallPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const taskAmount = searchParams.get('taskAmount');
@@ -73,15 +73,22 @@ export default function MallPage({ visible = true }: { visible?: boolean }) {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
+  const prevFilterRef = useRef('');
 
   useEffect(() => {
-    // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
-    if (!visible) return;
+    const filterKey = activeCategory + '|' + keyword + '|' + (taskAmount || '');
+    const filterChanged = filterKey !== prevFilterRef.current;
+    prevFilterRef.current = filterKey;
     setPage(1);
-    // 后台从服务器更新（缓存数据已经在初始状态中显示了）
-    fetchProducts(1, true);
+    // 首次加载或筛选条件变化时显示loading；切换tab回来只静默更新，不闪loading
+    if (filterChanged || products.length === 0) {
+      fetchProducts(1, true);
+    } else {
+      fetchProducts(1, true, true); // 静默更新，不显示loading
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCategory, keyword, taskAmount, visible]);
+  }, [activeCategory, keyword, taskAmount]);
 
   async function fetchCategories() {
     try {
@@ -96,12 +103,10 @@ export default function MallPage({ visible = true }: { visible?: boolean }) {
     }
   }
 
-  async function fetchProducts(p: number, replace: boolean) {
+  async function fetchProducts(p: number, replace: boolean, silent = false) {
     try {
-      if (replace) {
-        setLoading(true);
-      } else {
-        setLoadingMore(true);
+      if (!silent) {
+        if (replace) { setLoading(true); } else { setLoadingMore(true); }
       }
       setError(null);
       const params: Record<string, unknown> = {
@@ -133,8 +138,7 @@ export default function MallPage({ visible = true }: { visible?: boolean }) {
       logger.error('加载商品失败', err);
       setError('加载失败，请稍后重试');
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (!silent) { setLoading(false); setLoadingMore(false); }
     }
   }
 
@@ -368,3 +372,5 @@ export default function MallPage({ visible = true }: { visible?: boolean }) {
     </div>
   );
 }
+
+export default memo(MallPage);
