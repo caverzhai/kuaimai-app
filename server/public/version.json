@@ -1,1 +1,1 @@
-{"version":"2.34.15","versionCode":153,"downloadUrl":"https://backend-production-5d79.up.railway.app/download/kuaimai.apk","releaseNotes":"页面切换性能优化修复","forceUpdate":true,"forceUpdateBelowCode":153}
+{"version":"2.34.16","versionCode":154,"downloadUrl":"https://backend-production-5d79.up.railway.app/download/kuaimai.apk","releaseNotes":"修复APP页面切换卡顿：移除同步阻塞请求","forceUpdate":true,"forceUpdateBelowCode":154}

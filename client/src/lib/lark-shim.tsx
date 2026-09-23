@@ -69,7 +69,7 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
 
   // 优先使用原生HTTP桥接（通过Android原生层发起请求，完全绕过CORS）
   // 注意：每次请求都检测，因为接口可能在模块加载后才注册
-  const nativeHttp = typeof window !== 'undefined' ? window.NativeHttp : undefined;
+  const nativeHttp = undefined; // 禁用同步阻塞桥：@JavascriptInterface会卡死JS线程，统一走异步fetch
   if (nativeHttp && typeof nativeHttp.request === 'function') {
     try {
       // 构造请求头 JSON
