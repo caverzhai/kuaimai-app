@@ -65,7 +65,11 @@ export default function MallOrderConfirmPage() {
       try {
         setLoading(true);
         setError(null);
-        setProduct((await getProductDetail(productId)) as ProductInfo);
+        const p = (await getProductDetail(productId)) as ProductInfo;
+        if (p.status && p.status !== 'on_sale') {
+          setError('商品已下架，无法购买');
+        }
+        setProduct(p);
       } catch (e) {
         logger.error('获取商品详情失败', e);
         setError('加载商品失败，请稍后重试');
@@ -107,9 +111,11 @@ export default function MallOrderConfirmPage() {
         (await getOrderQrcode(newOrder.id)) as PlatformQrcodeInfo,
       );
       setStep('payment');
-    } catch (e) {
+    } catch (e: any) {
       logger.error('创建订单失败', e);
-      setError('创建订单失败，请稍后重试');
+      const raw = e?.response?.data?.message ?? e?.message ?? '创建订单失败，请稍后重试';
+      const msg = Array.isArray(raw) ? raw.join('；') : String(raw);
+      setError(msg);
     } finally {
       setSubmitting(false);
     }

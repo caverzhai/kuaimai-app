@@ -83,26 +83,32 @@ export class MallOrdersService {
 
     const orderNo = generateOrderNo('M');
 
-    const inserted = await this.db
-      .insert(mallOrders)
-      .values({
-        orderNo,
-        userId,
-        productId: dto.productId,
-        productName: product.name,
-        productImage,
-        price: product.price as string,
-        quantity: dto.quantity,
-        totalAmount,
-        receiveName: dto.receiveName,
-        receivePhone: dto.receivePhone,
-        receiveAddress: dto.receiveAddress,
-        status: MALL_ORDER_STATUS.PENDING_PAYMENT,
-        sellerId: (product as any).sellerId ?? null,
-      })
-      .returning();
+    let inserted;
+    try {
+      inserted = await this.db
+        .insert(mallOrders)
+        .values({
+          orderNo,
+          userId,
+          productId: dto.productId,
+          productName: product.name,
+          productImage,
+          price: product.price as string,
+          quantity: dto.quantity,
+          totalAmount,
+          receiveName: dto.receiveName,
+          receivePhone: dto.receivePhone,
+          receiveAddress: dto.receiveAddress,
+          status: MALL_ORDER_STATUS.PENDING_PAYMENT,
+          sellerId: (product as any).sellerId || null,
+        })
+        .returning();
+    } catch (dbErr) {
+      this.logger.error(`创建商城订单数据库失败: userId=${userId}, productId=${dto.productId}, sellerId=${(product as any).sellerId || null}, receiveName=${dto.receiveName}, error=${(dbErr as Error).message}`);
+      throw dbErr;
+    }
 
-    this.logger.log(`创建商城订单: orderNo=${orderNo}, userId=${userId}`);
+    this.logger.log(`创建商城订单: orderNo=${orderNo}, userId=${userId}, product=${product.name}, amount=${totalAmount}`);
     return this.toOrderInfo(inserted[0]);
   }
 

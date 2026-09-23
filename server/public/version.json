@@ -1,8 +1,8 @@
 {
-  "version": "2.34.9",
-  "versionCode": 147,
+  "version": "2.34.10",
+  "versionCode": 148,
   "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai.apk",
-  "releaseNotes": "补齐9级咨询团的公司收款码、营业执照上传入口（此前仅7、8级可见）。",
+  "releaseNotes": "商城订单创建失败时显示后端具体错误原因；订单确认页校验商品下架状态；修复平台自营商品sellerId空字符串隐患。",
   "forceUpdate": true,
-  "forceUpdateBelowCode": 147
+  "forceUpdateBelowCode": 148
 }
