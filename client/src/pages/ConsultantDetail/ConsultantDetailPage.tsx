@@ -215,7 +215,7 @@ export default function ConsultantDetailPage() {
 
   // 管理员（零号线）例外：始终显示个人收款码
   const ADMIN_ID = '4b51567f-8020-415c-8b5d-1de2f28e141d';
-  const isCompanyQrcode = consultant && consultant.id !== ADMIN_ID && LEVEL_LAYERS[consultant.level] >= 7;
+  const isCompanyQrcode = !!(consultant && consultant.id !== ADMIN_ID && LEVEL_LAYERS[consultant.level] >= 7 && consultant.companyQrcodeUrl);
 
   if (loading) {
     return (
