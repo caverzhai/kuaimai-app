@@ -126,6 +126,8 @@ export const industries = pgTable("industries", {
   sellerName: varchar("seller_name", { length: 100 }),
   sellerWechatQrcodeUrl: text("seller_wechat_qrcode_url"),
   sellerAlipayQrcodeUrl: text("seller_alipay_qrcode_url"),
+  /** 推广费率：默认0.08（8%），每个商品可单独设置 */
+  promotionFeeRate: numeric("promotion_fee_rate").notNull().default('0.08'),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -140,6 +142,8 @@ export const productCategories = pgTable("product_categories", {
   sellerName: varchar("seller_name", { length: 100 }),
   sellerWechatQrcodeUrl: text("seller_wechat_qrcode_url"),
   sellerAlipayQrcodeUrl: text("seller_alipay_qrcode_url"),
+  /** 推广费率：默认0.08（8%），每个商品可单独设置 */
+  promotionFeeRate: numeric("promotion_fee_rate").notNull().default('0.08'),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -232,7 +236,12 @@ export const consultOrders = pgTable("consult_orders", {
   reviewRemark: text("review_remark"),
   isOverflow: boolean("is_overflow").notNull().default(false),
   overflowToGroup: boolean("overflow_to_group").notNull().default(false),
+  // 级别不够流失：收款人级别 < 任务目标级别时，咨询费归平台
+  isLevelShortfall: boolean("is_level_shortfall").notNull().default(false),
+  originalConsultantId: uuid("original_consultant_id"), // 原始收款人（流失主体）
   autoConfirmDeadline: customTimestamptz('auto_confirm_deadline', { precision: 3 }),
+  cancelReason: text("cancel_reason"),
+  cancelledAt: customTimestamptz("cancelled_at", { precision: 3 }),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -302,6 +311,8 @@ export const products = pgTable("products", {
   sellerName: varchar("seller_name", { length: 100 }),
   sellerWechatQrcodeUrl: text("seller_wechat_qrcode_url"),
   sellerAlipayQrcodeUrl: text("seller_alipay_qrcode_url"),
+  /** 推广费率：默认0.08（8%），每个商品可单独设置 */
+  promotionFeeRate: numeric("promotion_fee_rate").notNull().default('0.08'),
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -348,6 +359,7 @@ export const users = pgTable("users", {
   thresholdTriggeredAt: customTimestamptz("threshold_triggered_at", { precision: 3 }),
   pendingReclaimAmount: numeric("pending_reclaim_amount").notNull().default('0'),
   overflowLossAmount: numeric("overflow_loss_amount").notNull().default('0'),
+  permanentLossAmount: numeric("permanent_loss_amount").notNull().default('0'), // 永久流失（级别不够，收不回）
   directInviteCount: integer("direct_invite_count").notNull().default(0),
   teamTotalCount: integer("team_total_count").notNull().default(0),
   treeLevel: integer("tree_level").notNull().default(0),
@@ -355,6 +367,19 @@ export const users = pgTable("users", {
   sellerStatus: varchar("seller_status", { length: 20 }).default("none"),
   securityQuestion: varchar("security_question", { length: 200 }),
   securityAnswer: varchar("security_answer", { length: 200 }),
+  // ── 四星60天考核机制 ──
+  // 考核状态：none=无需考核（未到四星），collecting=考核中（平台代收），passed=已达标（永久收款），eliminated=已淘汰（禁止登录）
+  assessmentStatus: varchar("assessment_status", { length: 20 }).notNull().default('none'),
+  fourStarAt: customTimestamptz("four_star_at", { precision: 3 }), // 升级四星时间（考核起点）
+  platformCollectedAmount: numeric("platform_collected_amount").notNull().default('0'), // 平台累计代收金额
+  refundRate: integer("refund_rate"), // 达标时的返还比例（100或50）
+  refundedAmount: numeric("refunded_amount").notNull().default('0'), // 已返还金额
+  refundStatus: varchar("refund_status", { length: 20 }).notNull().default('none'), // none/pending（待打款）/confirmed（已打款）
+  // ── 分身号机制 ──
+  isClone: boolean("is_clone").notNull().default(false), // 是否分身号
+  cloneOfId: uuid("clone_of_id"), // 分身号的原主用户ID（B原号）
+  replacementForId: uuid("replacement_for_id"), // 分身号顶替的被淘汰者ID（A）
+  cloneEligible: boolean("clone_eligible").notNull().default(false), // 是否获得分身资格（待提供新手机号）
   // System field: Creation time (auto-filled, do not modify)
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   // System field: Update time (auto-filled, do not modify)
@@ -522,6 +547,7 @@ export const managementFees = pgTable("management_fees", {
   confirmedBy: uuid("confirmed_by"),
   confirmedAt: customTimestamptz("confirmed_at", { precision: 3 }),
   deadline: customTimestamptz("deadline", { precision: 3 }),
+  warehousedProductIds: text("warehoused_product_ids"),
   createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -529,3 +555,68 @@ export const managementFees = pgTable("management_fees", {
   index("idx_management_fees_status").on(table.status),
   index("idx_management_fees_fee_date").on(table.feeDate),
 ]);
+
+// ============================================================
+// 四星考核：平台代收明细表
+// ============================================================
+// 记录四星考核期内，每一笔被平台代收的咨询费（收款码被替换为平台码）
+export const platformCollectionRecords = pgTable("platform_collection_records", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  consultantId: uuid("consultant_id").notNull(), // 被代收的咨询师（考核者）
+  consultOrderId: uuid("consult_order_id").notNull(), // 关联的咨询订单
+  amount: numeric("amount").notNull(), // 代收金额
+  lossType: varchar("loss_type", { length: 20 }).notNull().default('assessment'), // assessment=四星考核（可返还），level_shortfall=级别不够（永久）
+  refundStatus: varchar("refund_status", { length: 20 }).notNull().default('pending'), // pending=待返还，refunded=已返还，forfeited=已没收
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_platform_collection_consultant").on(table.consultantId),
+  index("idx_platform_collection_order").on(table.consultOrderId),
+]);
+
+// ============================================================
+// 分身顶替：资格通知表
+// ============================================================
+// 被淘汰者产生后，找到合格顶替者B，记录其分身资格（等待B提供新手机号后创建分身号）
+export const cloneNotifications = pgTable("clone_notifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eligibleUserId: uuid("eligible_user_id").notNull(), // 获得分身资格的人（B）
+  eliminatedUserId: uuid("eliminated_user_id").notNull(), // 被顶替的人（A）
+  status: varchar("status", { length: 20 }).notNull().default('pending_phone'), // pending_phone=等待提供手机号，done=分身号已创建
+  cloneUserId: uuid("clone_user_id"), // 创建出的分身号ID
+  newPhone: varchar("new_phone", { length: 20 }), // B提供的新手机号
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_clone_notifications_eligible").on(table.eligibleUserId),
+  index("idx_clone_notifications_eliminated").on(table.eliminatedUserId),
+  index("idx_clone_notifications_status").on(table.status),
+]);
+
+// ============================================================
+// 系统通知：管理员下发的全员广播 / 个人通知（客户端按 seq 增量轮询）
+// ============================================================
+export const systemNotifications = pgTable("system_notifications", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  seq: integer("seq"), // GENERATED ALWAYS AS IDENTITY（由迁移建立），客户端按它增量拉取
+  userId: uuid("user_id"), // null=全员广播；非null=仅指定用户
+  title: varchar("title", { length: 100 }).notNull(),
+  body: text("body").notNull(),
+  type: varchar("type", { length: 20 }).notNull().default('system'), // system=普通通知，update=版本更新
+  payload: jsonb("payload"), // 如 {version, versionCode, downloadUrl}
+  acked: boolean("acked").notNull().default(false), // collect 通知是否已成功送达目标用户
+  createdBy: uuid("created_by"),
+  createdAt: customTimestamptz("_created_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_system_notifications_user").on(table.userId),
+  index("idx_system_notifications_created").on(table.createdAt),
+]);
+
+// ============================================================
+// 平台公告（互动中心通知栏，单条当前内容，管理员编辑）
+// ============================================================
+export const platformNotices = pgTable("platform_notices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  content: text("content").notNull().default(''),
+  updatedBy: uuid("updated_by"),
+  updatedAt: customTimestamptz("_updated_at", { precision: 3 }).notNull().default(sql`CURRENT_TIMESTAMP`),
+});

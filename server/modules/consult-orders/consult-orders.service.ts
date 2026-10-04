@@ -22,7 +22,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 
 
 
-import { consultOrders, users, teamRelations } from '@server/database/schema';
+import { consultOrders, users, teamRelations, platformCollectionRecords, upgradeTasks } from '@server/database/schema';
 
 import { generateOrderNo } from '@server/common/utils/auth.util';
 
@@ -56,6 +56,8 @@ import type {
 
 import { UpgradeService } from '../upgrade/upgrade.service';
 
+import { NotificationsService } from '../notifications/notifications.service';
+
 
 
 @Injectable()
@@ -73,6 +75,8 @@ export class ConsultOrdersService {
 
 
     private readonly upgradeService: UpgradeService,
+
+    private readonly notificationsService: NotificationsService,
 
   ) {}
 
@@ -162,6 +166,12 @@ export class ConsultOrdersService {
 
 
       overflowToGroup: order.overflowToGroup,
+
+
+      isLevelShortfall: order.isLevelShortfall ?? false,
+
+
+      originalConsultantId: order.originalConsultantId ?? undefined,
 
 
       autoConfirmDeadline: order.autoConfirmDeadline
@@ -374,12 +384,18 @@ export class ConsultOrdersService {
     studentId: string,
 
 
-    isInvited: boolean,
-
-
     dto: CreateConsultOrderDTO,
 
   ): Promise<ConsultOrderInfo> {
+
+    const studentRows = await this.db
+      .select({ isInvited: users.isInvited })
+      .from(users)
+      .where(eq(users.id, studentId))
+      .limit(1);
+    if (!studentRows[0]?.isInvited) {
+      throw new BadRequestException('您还未绑定邀请人，无法下单或开始任务。请先到「任务中心」补充邀请码激活账号');
+    }
 
 
     // 鏍￠獙鍜ㄨ甯堝瓨鍦ㄤ笖 level != junior锛堢鐞嗗憳闄ゅ锛?
@@ -404,7 +420,7 @@ export class ConsultOrdersService {
     if (!consultant) {
 
 
-      throw new NotFoundException('鍜ㄨ甯堜笉瀛樺湪');
+      throw new NotFoundException('咨询师不存在或已被注销，请返回重新选择咨询师');
 
 
     }
@@ -422,6 +438,38 @@ export class ConsultOrdersService {
 
 
     }
+
+
+    // ── 级别匹配校验：收某级升级任务咨询费，收款人级别必须 ≥ 任务目标级别 ──
+    // 直推人例外：累计总收款 5100 元前不受级别限制，超过 5100 元后受限制
+    let isLevelShortfall = false;
+    if (dto.taskLevelTo && consultant.id !== ADMIN_ID) {
+      const requiredLevel = LEVEL_LAYERS[dto.taskLevelTo] ?? 0;
+      const consultantLevelNum = LEVEL_LAYERS[consultant.level] ?? 0;
+      if (consultantLevelNum < requiredLevel) {
+        // 查询学生，判断收款人是否为其直推人
+        const studentRows = await this.db
+          .select({ inviterId: users.inviterId })
+          .from(users)
+          .where(eq(users.id, studentId))
+          .limit(1);
+        const studentInviterId = studentRows[0]?.inviterId;
+        const isDirectReferrer = !!studentInviterId && consultant.id === studentInviterId;
+        if (isDirectReferrer) {
+          // 直推人：累计总收款达到 5100 元后才受级别限制
+          const directTotal = Number(consultant.totalConsultIncome) || 0;
+          if (directTotal >= 5100) {
+            isLevelShortfall = true;
+          }
+        } else {
+          // 团队树上级：直接受级别限制
+          isLevelShortfall = true;
+        }
+      }
+    }
+
+    // 级别不够时，实际收款人为平台（管理员）
+    const effectiveConsultantId = isLevelShortfall ? ADMIN_ID : dto.consultantId;
 
 
 
@@ -451,7 +499,7 @@ export class ConsultOrdersService {
 
 
 
-    if (distance !== null) {
+    if (distance !== null && !isLevelShortfall) {
 
 
       const maxLayers = LEVEL_LAYERS[consultant.level] ?? 0;
@@ -477,6 +525,34 @@ export class ConsultOrdersService {
 
 
 
+    // ── 下单合法性校验：taskId 必须存在且属于当前账号；升级款不得向下级支付 ──
+    if (dto.taskId) {
+      const taskRows = await this.db
+        .select()
+        .from(upgradeTasks)
+        .where(eq(upgradeTasks.id, dto.taskId as string))
+        .limit(1);
+      const ownedTask = taskRows[0];
+      if (!ownedTask) {
+        throw new BadRequestException('该升级任务不存在或已失效，请返回「任务中心」重新进入，请勿使用他人转发或过期的链接');
+      }
+      if (ownedTask.userId !== studentId) {
+        throw new BadRequestException('该升级任务不属于当前登录账号，请勿使用他人转发的链接代下单，请从本人「任务中心」进入支付');
+      }
+    }
+
+    if (dto.serviceType === 'upgrade_task' && dto.consultantId !== ADMIN_ID) {
+      const consultantRelRows = await this.db
+        .select()
+        .from(teamRelations)
+        .where(eq(teamRelations.userId, dto.consultantId))
+        .limit(1);
+      const consultantPath = consultantRelRows[0]?.path || '';
+      if (consultantPath.includes(',' + studentId + ',')) {
+        throw new BadRequestException('升级咨询费只能支付给您的上级，不能支付给下级。请勿使用他人转发的链接，请从本人「任务中心」进入');
+      }
+    }
+
     // 幂等性检查：如果同一个任务已经有pending_payment或pending_confirm状态的订单，返回已存在的订单
     if (dto.taskId) {
       const existingOrders = await this.db
@@ -490,6 +566,7 @@ export class ConsultOrdersService {
             CONSULT_ORDER_STATUS.PENDING_CONFIRM,
             CONSULT_ORDER_STATUS.IN_SERVICE,
             CONSULT_ORDER_STATUS.PENDING_REVIEW,
+            CONSULT_ORDER_STATUS.COMPLETED,
           ]),
         ));
       if (existingOrders.length > 0) {
@@ -523,7 +600,7 @@ export class ConsultOrdersService {
         studentId,
 
 
-        consultantId: dto.consultantId,
+        consultantId: effectiveConsultantId,
 
 
         serviceType: dto.serviceType,
@@ -551,6 +628,12 @@ export class ConsultOrdersService {
 
 
         overflowToGroup,
+
+
+        isLevelShortfall,
+
+
+        originalConsultantId: isLevelShortfall ? dto.consultantId : null,
 
 
       })
@@ -1391,7 +1474,7 @@ export class ConsultOrdersService {
     const autoConfirmDeadline = new Date();
 
 
-    autoConfirmDeadline.setMinutes(autoConfirmDeadline.getMinutes() + 20);
+    autoConfirmDeadline.setSeconds(autoConfirmDeadline.getSeconds() + 180);
 
 
 
@@ -1421,6 +1504,27 @@ export class ConsultOrdersService {
 
 
       .returning();
+
+    // 实时标记升级任务已传凭证，立即解锁下一任务（不等审核通过）
+    try {
+      await this.upgradeService.markTaskSubmittedByTaskId(updated[0].taskId);
+    } catch (e) {
+      this.logger.error(`标记任务已传凭证失败: ${e}`);
+    }
+
+    // 收款提醒：向收款人（咨询师）推送待确认通知
+    try {
+      const co = updated[0];
+      const amountYuan = Number(co.amount).toFixed(2);
+      await this.notificationsService.createCollect(
+        co.consultantId,
+        'AI快卖·请您收款',
+        `您有一笔¥${amountYuan}咨询服务费待确认，付款人已上传凭证，请尽快核对并确认收款`,
+        { kind: 'consult', orderId: co.id, amount: amountYuan, studentId: co.studentId },
+      );
+    } catch (e) {
+      this.logger.error(`推送收款提醒失败: ${e}`);
+    }
 
 
 
@@ -1552,151 +1656,68 @@ export class ConsultOrdersService {
 
 
 
-      // 瓒呭眰娴佸け璁㈠崟锛屽挩璇㈠笀涓嶆嬁鏀跺叆锛堝綊鍜ㄨ甯堝洟锛?
-
-      if (!order.isOverflow || !order.overflowToGroup) {
-
-
-        const orderAmount = String(order.amount);
-
-
-
-
-        // 绱姞鍜ㄨ甯?totalConsultIncome
-
-
-        const updatedUsers = await tx
-
-
+      // 级别不够永久流失：咨询费归平台，记入原始收款人"永久流失"，不进任何人收入
+      if (order.isLevelShortfall && order.originalConsultantId) {
+        const shortfallAmount = String(order.amount);
+        await tx.insert(platformCollectionRecords).values({
+          consultantId: order.originalConsultantId,
+          consultOrderId: order.id,
+          amount: shortfallAmount,
+          lossType: 'level_shortfall',
+          refundStatus: 'forfeited',
+        });
+        await tx
           .update(users)
-
-
           .set({
-
-
-            totalConsultIncome: sql`${users.totalConsultIncome} + ${orderAmount}::numeric`,
-
-
+            permanentLossAmount: sql`${users.permanentLossAmount} + ${shortfallAmount}::numeric`,
           })
-
-
-          .where(eq(users.id, userId))
-
-
-          .returning();
-
-
-
-
-        const consultant = updatedUsers[0];
-
-
-        if (consultant && consultant.level === LEVELS.LEVEL_4) {
-
-
-          // 900鍏冮棬妲涙鏌ワ細浠呴拡瀵?level_4 鍜ㄨ甯?
-
-          const incomeNum = Number(consultant.totalConsultIncome);
-
-
-          if (
-
-
-            incomeNum > 900 &&
-
-
-            consultant.directInviteCount < 3 &&
-
-
-            !consultant.thresholdBlocked
-
-
-          ) {
-
-
-            await tx
-
-
-              .update(users)
-
-
-              .set({
-
-
-                thresholdBlocked: true,
-
-
-                thresholdTriggeredAt: now,
-
-
-              })
-
-
-              .where(eq(users.id, userId));
-
-
-
-
-            this.logger.log(
-
-
-              `4绾у挩璇㈠笀瑙﹀彂900鍏冮棬妲? consultantId=${userId}, ` +
-
-
-                `totalConsultIncome=${incomeNum}, ` +
-
-
-                `directInviteCount=${consultant.directInviteCount}`,
-
-
-            );
-
-
-          }
-
-
-
-
-
-        }
-
-
+          .where(eq(users.id, order.originalConsultantId));
+        this.logger.log(
+          `级别不够永久流失: originalConsultantId=${order.originalConsultantId}, orderId=${order.id}, amount=${shortfallAmount}`,
+        );
       }
 
+      // 非超层、非级别不够订单：根据收款咨询师考核状态决定收入归属
+      if ((!order.isOverflow || !order.overflowToGroup) && !order.isLevelShortfall) {
+        const orderAmount = String(order.amount);
+        const payeeId = order.consultantId;
 
+        // 查询收款咨询师的考核状态
+        const payeeRows = await tx
+          .select({ assessmentStatus: users.assessmentStatus })
+          .from(users)
+          .where(eq(users.id, payeeId))
+          .limit(1);
+        const payeeStatus = payeeRows[0]?.assessmentStatus;
 
-
-
-      // 解除门槛限制：直推人数达到3人及以上，或升级到5级及以上时自动解除（所有级别通用）
-      // 重新查询用户信息（因为已经在事务外面了）
-      const consultantRows = await this.db
-        .select()
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-      if (consultantRows.length > 0) {
-        const consultant = consultantRows[0];
-        if (consultant.thresholdBlocked && (consultant.directInviteCount >= 3 || consultant.level !== 'level_4')) {
-          const pendingAmount = Number(consultant.pendingReclaimAmount) || 0;
-          const incomeNum = Number(consultant.totalConsultIncome) || 0;
-          const newTotalIncome = incomeNum + pendingAmount;
-          await this.db
+        if (payeeStatus === 'collecting') {
+          // 四星考核代收：咨询费归平台，记录代收明细、累计代收金额（不计入咨询师收入）
+          await tx.insert(platformCollectionRecords).values({
+            consultantId: payeeId,
+            consultOrderId: order.id,
+            amount: orderAmount,
+            lossType: 'assessment',
+            refundStatus: 'pending',
+          });
+          await tx
             .update(users)
             .set({
-              thresholdBlocked: false,
-              thresholdTriggeredAt: null,
-              pendingReclaimAmount: '0',
-              totalConsultIncome: newTotalIncome.toFixed(2),
+              platformCollectedAmount: sql`${users.platformCollectedAmount} + ${orderAmount}::numeric`,
             })
-            .where(eq(users.id, userId));
+            .where(eq(users.id, payeeId));
           this.logger.log(
-            `咨询师解除900元门槛: consultantId=${userId}, level=${consultant.level}, ` +
-              `directInviteCount=${consultant.directInviteCount}, ` +
-              `返还暂存金额=${pendingAmount}`,
+            `四星考核代收: consultantId=${payeeId}, orderId=${order.id}, amount=${orderAmount}`,
           );
+        } else {
+          // 正常收款：累加咨询师 totalConsultIncome
+          await tx
+            .update(users)
+            .set({
+              totalConsultIncome: sql`${users.totalConsultIncome} + ${orderAmount}::numeric`,
+            })
+            .where(eq(users.id, payeeId));
         }
       }
-
 
       return updated;
 
@@ -1725,6 +1746,12 @@ export class ConsultOrdersService {
 
     // 确认收款鍚庣珛鍗宠Е鍙戝崌绾т换鍔″畬鎴愭鏌ワ紙鍙栨秷浣滀笟鎻愪氦娴佺▼锛?
 
+    // 级别不够订单：任务 targetId 是原始收款人，用 originalConsultantId 匹配，确保付款人任务照常完成
+    const taskMatchConsultantId =
+      order.isLevelShortfall && order.originalConsultantId
+        ? order.originalConsultantId
+        : order.consultantId;
+
     try {
 
 
@@ -1737,7 +1764,7 @@ export class ConsultOrdersService {
         order.id,
 
 
-        order.consultantId,
+        taskMatchConsultantId,
 
 
         String(order.amount),
@@ -1823,7 +1850,7 @@ export class ConsultOrdersService {
     const autoConfirmDeadline = new Date();
 
 
-    autoConfirmDeadline.setMinutes(autoConfirmDeadline.getMinutes() + 20);
+    autoConfirmDeadline.setSeconds(autoConfirmDeadline.getSeconds() + 180);
 
 
 
@@ -2118,5 +2145,52 @@ export class ConsultOrdersService {
     }
 
     return { confirmed, reviewed };
+  }
+
+  /** 定时任务：自动取消超时未付款的咨询订单（30分钟未付款自动清除，取消后不影响重新下单） */
+  async autoCancelExpiredPendingOrdersCron(): Promise<{ cancelled: number }> {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - 30 * 60 * 1000);
+    let cancelled = 0;
+
+    try {
+      const expired = await this.db
+        .select()
+        .from(consultOrders)
+        .where(
+          and(
+            eq(consultOrders.status, CONSULT_ORDER_STATUS.PENDING_PAYMENT),
+            sql`${consultOrders.createdAt} <= ${cutoff}`,
+          ),
+        );
+
+      if (expired.length > 0) {
+        this.logger.log(`定时任务扫描到 ${expired.length} 个超时(30分钟)未付款咨询订单，自动取消`);
+      }
+
+      for (const order of expired) {
+        try {
+          await this.db
+            .update(consultOrders)
+            .set({
+              status: CONSULT_ORDER_STATUS.CANCELLED,
+              cancelledAt: now,
+              cancelReason: '下单后30分钟内未完成付款，系统自动取消，您可重新发起咨询',
+            })
+            .where(eq(consultOrders.id, order.id));
+          cancelled++;
+        } catch (e) {
+          this.logger.error(`定时任务自动取消未付款咨询订单失败: orderId=${order.id}, error=${e}`);
+        }
+      }
+
+      if (cancelled > 0) {
+        this.logger.log(`定时任务完成: 自动取消超时未付款咨询订单${cancelled}个`);
+      }
+    } catch (e) {
+      this.logger.error(`定时任务扫描超时未付款咨询订单失败: ${e}`);
+    }
+
+    return { cancelled };
   }
 }

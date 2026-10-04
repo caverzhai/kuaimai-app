@@ -63,4 +63,34 @@ export class UsersController {
     const userId = req.user!.userId;
     return this.usersService.getOrGenerateInviteCode(userId);
   }
+
+  // 四星考核信息（倒计时/有效四星进度/累计代收金额/返还状态）
+  @Get('assessment')
+  @UseGuards(AuthGuard)
+  async getAssessment(@Req() req: Request) {
+    const userId = req.user!.userId;
+    return this.usersService.getAssessmentInfo(userId);
+  }
+
+  // 获得分身资格后，提交分身新手机号
+  @Post('clone-phone')
+  @UseGuards(AuthGuard)
+  async submitClonePhone(
+    @Req() req: Request,
+    @Body('newPhone') newPhone: string,
+  ) {
+    const userId = req.user!.userId;
+    return this.usersService.submitClonePhone(userId, newPhone);
+  }
+
+  // 登录态修改密码：凭旧密码设置新密码
+  @Post('change-password')
+  @UseGuards(AuthGuard)
+  async changePassword(
+    @Req() req: Request,
+    @Body() body: { oldPassword: string; newPassword: string },
+  ) {
+    const userId = req.user!.userId;
+    return this.usersService.changePassword(userId, body);
+  }
 }

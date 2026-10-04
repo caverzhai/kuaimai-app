@@ -183,7 +183,98 @@ export class DatabaseModule implements OnModuleInit {
       await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_management_fees_seller_id ON management_fees(seller_id)`)
       await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_management_fees_status ON management_fees(status)`)
       await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_management_fees_fee_date ON management_fees(fee_date)`)
+      await this.db.execute(sql`ALTER TABLE management_fees ADD COLUMN IF NOT EXISTS warehoused_product_ids text`)
       console.log('[Migration] 商家相关字段和管理费表已确保存在')
+
+      // ── 四星60天考核机制字段 ──
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS assessment_status varchar(20) NOT NULL DEFAULT 'none'`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS four_star_at timestamptz(3)`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS platform_collected_amount numeric NOT NULL DEFAULT '0'`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS refund_rate integer`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS refunded_amount numeric NOT NULL DEFAULT '0'`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS refund_status varchar(20) NOT NULL DEFAULT 'none'`)
+      // ── 分身号机制字段 ──
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_clone boolean NOT NULL DEFAULT false`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS clone_of_id uuid`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS replacement_for_id uuid`)
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS clone_eligible boolean NOT NULL DEFAULT false`)
+      console.log('[Migration] 四星考核与分身号字段已确保存在')
+
+      // 平台代收明细表
+      await this.db.execute(sql`
+        CREATE TABLE IF NOT EXISTS platform_collection_records (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          consultant_id uuid NOT NULL,
+          consult_order_id uuid NOT NULL,
+          amount numeric NOT NULL,
+          refund_status varchar(20) NOT NULL DEFAULT 'pending',
+          _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_platform_collection_consultant ON platform_collection_records(consultant_id)`)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_platform_collection_order ON platform_collection_records(consult_order_id)`)
+      // 流失费相关列（级别不够永久流失 + 代收明细类型）
+      await this.db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS permanent_loss_amount numeric NOT NULL DEFAULT '0'`)
+      await this.db.execute(sql`ALTER TABLE consult_orders ADD COLUMN IF NOT EXISTS is_level_shortfall boolean NOT NULL DEFAULT false`)
+      await this.db.execute(sql`ALTER TABLE consult_orders ADD COLUMN IF NOT EXISTS original_consultant_id uuid`)
+      await this.db.execute(sql`ALTER TABLE platform_collection_records ADD COLUMN IF NOT EXISTS loss_type varchar(20) NOT NULL DEFAULT 'assessment'`)
+      console.log('[Migration] 流失费字段已确保存在')
+
+      // 分身资格通知表
+      await this.db.execute(sql`
+        CREATE TABLE IF NOT EXISTS clone_notifications (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          eligible_user_id uuid NOT NULL,
+          eliminated_user_id uuid NOT NULL,
+          status varchar(20) NOT NULL DEFAULT 'pending_phone',
+          clone_user_id uuid,
+          new_phone varchar(20),
+          _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_clone_notifications_eligible ON clone_notifications(eligible_user_id)`)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_clone_notifications_eliminated ON clone_notifications(eliminated_user_id)`)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_clone_notifications_status ON clone_notifications(status)`)
+      console.log('[Migration] 代收明细表与分身通知表已确保存在')
+
+      // 系统通知表（管理员全员广播/个人通知，客户端按 seq 增量轮询拉取）
+      await this.db.execute(sql`
+        CREATE TABLE IF NOT EXISTS system_notifications (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          seq integer GENERATED ALWAYS AS IDENTITY,
+          user_id uuid,
+          title varchar(100) NOT NULL,
+          body text NOT NULL,
+          type varchar(20) NOT NULL DEFAULT 'system',
+          payload jsonb,
+          created_by uuid,
+          _created_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      await this.db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_system_notifications_seq ON system_notifications(seq)`)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_system_notifications_user ON system_notifications(user_id)`)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_system_notifications_created ON system_notifications(_created_at)`)
+      // 送达确认：collect 收款通知是否已成功下发给目标用户（至少送达一次，避免错过窗口丢失）
+      await this.db.execute(sql`ALTER TABLE system_notifications ADD COLUMN IF NOT EXISTS acked boolean NOT NULL DEFAULT false`)
+      await this.db.execute(sql`CREATE INDEX IF NOT EXISTS idx_system_notifications_pending_ack ON system_notifications(user_id, acked)`)
+      console.log('[Migration] 系统通知表已确保存在')
+
+      // 平台公告表（互动中心通知栏，单条）
+      await this.db.execute(sql`
+        CREATE TABLE IF NOT EXISTS platform_notices (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          content text NOT NULL DEFAULT '',
+          updated_by uuid,
+          _updated_at timestamptz(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      await this.db.execute(sql`INSERT INTO platform_notices (content) SELECT '' WHERE NOT EXISTS (SELECT 1 FROM platform_notices)`)
+      console.log('[Migration] 平台公告表已确保存在')
+
+      // 商品推广费率（每个商品可单独设置，默认8%）
+      await this.db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS promotion_fee_rate numeric NOT NULL DEFAULT '0.08'`)
+      console.log('[Migration] 商品推广费率字段已确保存在')
 
     } catch (err) {
       console.error('[Migration] 迁移失败', err);

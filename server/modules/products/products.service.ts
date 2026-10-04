@@ -1,8 +1,8 @@
 import { Injectable, Inject, Logger, NotFoundException } from '@nestjs/common';
 import { DRIZZLE_DATABASE } from '../../database/database.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { products, productCategories } from '@server/database/schema';
-import { eq, and, count, desc, asc, ilike, sql } from 'drizzle-orm';
+import { products, productCategories, users, mallOrders } from '@server/database/schema';
+import { eq, and, count, desc, asc, ilike, sql, inArray } from 'drizzle-orm';
 import type { ProductInfo, ProductListResponse, ProductCategoryInfo } from '@shared/api.interface';
 
 interface ProductListParams {
@@ -10,6 +10,7 @@ interface ProductListParams {
   pageSize?: number;
   category?: string;
   keyword?: string;
+  price?: string;
 }
 
 interface CreateProductDTO {
@@ -23,6 +24,7 @@ interface CreateProductDTO {
   status?: string;
   sortOrder?: number;
   sellerId?: string;
+  promotionFeeRate?: string;
 }
 
 interface UpdateProductDTO {
@@ -36,6 +38,7 @@ interface UpdateProductDTO {
   status?: string;
   sortOrder?: number;
   sellerId?: string;
+  promotionFeeRate?: string;
 }
 
 @Injectable()
@@ -43,6 +46,20 @@ export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
 
   constructor(@Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase) {}
+
+  /**
+   * 根据卖家ID解析卖家昵称（冗余存入 products.sellerName，便于列表直接展示）。
+   * sellerId 为空表示平台自营，返回 null。
+   */
+  private async resolveSellerName(sellerId?: string | null): Promise<string | null> {
+    if (!sellerId) return null;
+    const rows = await this.db
+      .select({ nickname: users.nickname })
+      .from(users)
+      .where(eq(users.id, sellerId))
+      .limit(1);
+    return rows[0]?.nickname ?? null;
+  }
 
   /** 前台商品列表：仅上架商品，支持分页、分类筛选、关键词搜索 */
   async getProductList(params: ProductListParams): Promise<ProductListResponse> {
@@ -56,6 +73,10 @@ export class ProductsService {
     }
     if (params.keyword) {
       conditions.push(ilike(products.name, `%${params.keyword}%`));
+    }
+    if (params.price) {
+      // 升级任务模式：按金额精确过滤（numeric 比较，兼容 200 / 200.00）
+      conditions.push(sql`${products.price}::numeric = ${params.price}::numeric`);
     }
     const whereClause = and(...conditions);
 
@@ -71,11 +92,14 @@ export class ProductsService {
           spec: products.spec,
           mainImages: products.mainImages,
           status: products.status,
+          sellerId: products.sellerId,
+          sellerName: products.sellerName,
+          promotionFeeRate: products.promotionFeeRate,
           createdAt: products.createdAt,
         })
         .from(products)
         .where(whereClause)
-        .orderBy(asc(products.sortOrder), desc(products.createdAt))
+        .orderBy(desc(sql`COALESCE((SELECT max(mo._created_at) FROM mall_orders mo WHERE mo.product_id = ${products.id} AND mo.status IN ('pending_shipment','pending_delivery','completed')), ${products.createdAt})`))
         .limit(pageSize)
         .offset(offset),
     ]);
@@ -92,8 +116,27 @@ export class ProductsService {
       detailImages: [],
       status: item.status,
       sortOrder: 0,
+      sellerId: item.sellerId ?? undefined,
+      sellerName: item.sellerName ?? undefined,
+      promotionFeeRate: String(item.promotionFeeRate ?? '0.08'),
       createdAt: item.createdAt.toISOString(),
     }));
+
+    // 批量查询当前页商品已售件数（已付款确认：待发货+待收货+已完成）
+    const productIds = itemsRaw.map((item) => item.id);
+    const salesMap: Record<string, number> = {};
+    if (productIds.length > 0) {
+      const salesRows = await this.db
+        .select({ productId: mallOrders.productId, cnt: count() })
+        .from(mallOrders)
+        .where(and(
+          inArray(mallOrders.productId, productIds),
+          inArray(mallOrders.status, ['pending_shipment', 'pending_delivery', 'completed']),
+        ))
+        .groupBy(mallOrders.productId);
+      for (const row of salesRows) salesMap[row.productId] = Number(row.cnt);
+    }
+    for (const item of items) item.sales = salesMap[item.id] ?? 0;
 
     return { items, total, page, pageSize };
   }
@@ -105,7 +148,7 @@ export class ProductsService {
       throw new NotFoundException('商品不存在');
     }
     const p = result[0];
-    return {
+    const productInfo: ProductInfo = {
       id: p.id,
       name: p.name,
       price: String(p.price),
@@ -117,8 +160,20 @@ export class ProductsService {
       status: p.status,
       sortOrder: p.sortOrder,
       sellerId: p.sellerId ?? undefined,
+      sellerName: p.sellerName ?? undefined,
+      promotionFeeRate: String(p.promotionFeeRate),
+      sales: 0,
       createdAt: p.createdAt.toISOString(),
     };
+    const salesRows = await this.db
+      .select({ cnt: count() })
+      .from(mallOrders)
+      .where(and(
+        eq(mallOrders.productId, id),
+        inArray(mallOrders.status, ['pending_shipment', 'pending_delivery', 'completed']),
+      ));
+    productInfo.sales = Number(salesRows[0]?.cnt ?? 0);
+    return productInfo;
   }
 
   /** 商品分类列表 */
@@ -170,6 +225,8 @@ export class ProductsService {
       status: item.status,
       sortOrder: item.sortOrder,
       sellerId: (item as any).sellerId ?? undefined,
+      sellerName: (item as any).sellerName ?? undefined,
+      promotionFeeRate: String((item as any).promotionFeeRate ?? '0.08'),
       createdAt: item.createdAt.toISOString(),
     }));
 
@@ -178,6 +235,8 @@ export class ProductsService {
 
   /** 后台创建商品 */
   async createProduct(dto: CreateProductDTO): Promise<ProductInfo> {
+    const sellerId = (dto as any).sellerId ?? null;
+    const sellerName = await this.resolveSellerName(sellerId);
     const inserted = await this.db
       .insert(products)
       .values({
@@ -190,7 +249,9 @@ export class ProductsService {
         detailImages: dto.detailImages as unknown as string[],
         status: dto.status ?? 'on_sale',
         sortOrder: dto.sortOrder ?? 0,
-        sellerId: (dto as any).sellerId ?? null,
+        sellerId,
+        sellerName,
+        promotionFeeRate: (dto as any).promotionFeeRate ?? '0.08',
       })
       .returning();
 
@@ -207,6 +268,8 @@ export class ProductsService {
       status: p.status,
       sortOrder: p.sortOrder,
       sellerId: p.sellerId ?? undefined,
+      sellerName: p.sellerName ?? undefined,
+      promotionFeeRate: String(p.promotionFeeRate),
       createdAt: p.createdAt.toISOString(),
     };
   }
@@ -227,7 +290,11 @@ export class ProductsService {
     }
     if (dto.status !== undefined) patch.status = dto.status;
     if (dto.sortOrder !== undefined) patch.sortOrder = dto.sortOrder;
-    if ((dto as any).sellerId !== undefined) (patch as any).sellerId = (dto as any).sellerId;
+    if ((dto as any).sellerId !== undefined) {
+      (patch as any).sellerId = (dto as any).sellerId;
+      (patch as any).sellerName = await this.resolveSellerName((dto as any).sellerId);
+    }
+    if ((dto as any).promotionFeeRate !== undefined) (patch as any).promotionFeeRate = (dto as any).promotionFeeRate;
 
     if (Object.keys(patch).length === 0) {
       return this.getProductDetail(id);
@@ -251,6 +318,8 @@ export class ProductsService {
       status: p.status,
       sortOrder: p.sortOrder,
       sellerId: p.sellerId ?? undefined,
+      sellerName: p.sellerName ?? undefined,
+      promotionFeeRate: String(p.promotionFeeRate),
       createdAt: p.createdAt.toISOString(),
     };
   }

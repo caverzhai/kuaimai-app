@@ -23,12 +23,14 @@ export class ProductsController {
     @Query('pageSize') pageSize?: string,
     @Query('category') category?: string,
     @Query('keyword') keyword?: string,
+    @Query('price') price?: string,
   ): Promise<ProductListResponse> {
     return this.productsService.getProductList({
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
       category,
       keyword,
+      price,
     });
   }
 

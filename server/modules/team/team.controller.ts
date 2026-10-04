@@ -13,8 +13,7 @@ export class TeamController {
   @UseGuards(AuthGuard)
   async getTeamTree(@Req() req: Request): Promise<TeamInfo> {
     const userId = req.user!.userId;
-    const isInvited = req.user!.isInvited;
-    return this.teamService.getTeamTree(userId, isInvited);
+    return this.teamService.getTeamTree(userId);
   }
 
   @Get('invite')

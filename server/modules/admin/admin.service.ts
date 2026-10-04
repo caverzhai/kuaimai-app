@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ConflictException,
   Inject,
@@ -8,21 +8,25 @@ import {
 } from '@nestjs/common';
 import { DRIZZLE_DATABASE } from '../../database/database.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 
 import {
   users,
+  products,
   mallOrders,
   consultOrders,
   platformQrcodes,
   upgradeTasks,
   managementFees,
+  teamRelations,
+  platformCollectionRecords,
 } from '@server/database/schema';
 import { ProductsService } from '@server/modules/products/products.service';
-import { hashPassword } from '@server/common/utils/auth.util';
+import { hashPassword, generateOrderNo } from '@server/common/utils/auth.util';
 import { UpgradeService } from '@server/modules/upgrade/upgrade.service';
 import {
   LEVELS,
+  PRODUCT_STATUS,
   MALL_ORDER_STATUS,
   CONSULT_ORDER_STATUS,
   TASK_STATUS,
@@ -94,6 +98,13 @@ interface FinanceInfo {
   totalConsultIncome: string;
   pendingReclaimAmount: string;
   overflowLossAmount: string;
+  permanentLossAmount: string; // 永久流失（级别不够）
+  assessmentStatus: string; // 四星考核状态
+  fourStarAt?: string;
+  platformCollectedAmount: string; // 平台累计代收（可返回流失）
+  refundRate?: number;
+  refundedAmount: string;
+  refundStatus: string;
   thresholdBlocked: boolean;
   thresholdTriggeredAt?: string;
   directInviteCount: number;
@@ -152,7 +163,8 @@ export class AdminService {
     if (existing.length === 0) {
       throw new NotFoundException('用户不存在');
     }
-    const hashed = await hashPassword(newPassword);
+    const trimmed = String(newPassword).trim();
+    const hashed = await hashPassword(trimmed);
     await this.db.update(users).set({ password: hashed }).where(eq(users.id, id));
     this.logger.log('管理员重置用户密码: id=' + id + ', phone=' + existing[0].phone);
     return { success: true };
@@ -274,6 +286,286 @@ export class AdminService {
     return this.toMallOrderInfo(updated[0]);
   }
 
+  // 临时：补完成指定用户的商城购买任务（用于修复自动确认未触发任务完成的历史订单）
+  async fixUserMallTask(userId: string): Promise<{ fixed: boolean; taskId?: string; nextTaskId?: string; upgraded?: boolean }> {
+    const tasks = await this.db
+      .select()
+      .from(upgradeTasks)
+      .where(and(
+        eq(upgradeTasks.userId, userId),
+        eq(upgradeTasks.taskType, 'mall_purchase'),
+        or(eq(upgradeTasks.status, TASK_STATUS.IN_PROGRESS), eq(upgradeTasks.status, TASK_STATUS.PENDING)),
+      ))
+      .orderBy(upgradeTasks.taskIndex)
+      .limit(1);
+
+    if (tasks.length === 0) return { fixed: false };
+
+    const task = tasks[0];
+    const now = new Date();
+    await this.db.update(upgradeTasks).set({
+      status: TASK_STATUS.COMPLETED,
+      completedAt: now,
+      mallOrderId: null,
+    }).where(eq(upgradeTasks.id, task.id));
+
+    // 自动开始下一个任务
+    let nextTaskId;
+    const nextTasks = await this.db.select().from(upgradeTasks).where(and(
+      eq(upgradeTasks.userId, userId),
+      eq(upgradeTasks.fromLevel, task.fromLevel),
+      eq(upgradeTasks.toLevel, task.toLevel),
+      eq(upgradeTasks.taskIndex, task.taskIndex + 1),
+    )).limit(1);
+    if (nextTasks.length > 0 && nextTasks[0].status === TASK_STATUS.PENDING) {
+      await this.db.update(upgradeTasks).set({
+        status: TASK_STATUS.IN_PROGRESS,
+      }).where(eq(upgradeTasks.id, nextTasks[0].id));
+      nextTaskId = nextTasks[0].id;
+    }
+
+    // 检查是否全部完成，是则升级
+    let upgraded = false;
+    const allTasks = await this.db.select({ status: upgradeTasks.status }).from(upgradeTasks).where(and(
+      eq(upgradeTasks.userId, userId),
+      eq(upgradeTasks.fromLevel, task.fromLevel),
+      eq(upgradeTasks.toLevel, task.toLevel),
+    ));
+    if (allTasks.length > 0 && allTasks.every(t => t.status === TASK_STATUS.COMPLETED)) {
+      await this.db.update(users).set({ level: task.toLevel, updatedAt: now }).where(eq(users.id, userId));
+      upgraded = true;
+    }
+
+    this.logger.log(`补完成商城任务: userId=${userId}, taskId=${task.id}, nextTask=${nextTaskId || "none"}, upgraded=${upgraded}`);
+    return { fixed: true, taskId: task.id, nextTaskId, upgraded };
+  }
+
+  // 清理初级用户的团队树位置（新规则：初级用户不占团队树位置，完成4级任务后才滑落）
+  async cleanJuniorTeamPositions(): Promise<{ cleaned: number; users: Array<{ id: string; nickname: string; phone: string }> }> {
+    // 查找所有 level = junior 的用户，在代码中过滤 parentId 不为 null 的
+    const allJunior = await this.db
+      .select({
+        id: users.id,
+        nickname: users.nickname,
+        phone: users.phone,
+        parentId: users.parentId,
+      })
+      .from(users)
+      .where(eq(users.level, 'junior'));
+    const juniorInTeam = allJunior.filter(u => u.parentId !== null);
+
+    if (juniorInTeam.length === 0) {
+      return { cleaned: 0, users: [] };
+    }
+
+    // 逐个删除和更新（避免复杂的SQL数组语法）
+    for (const junior of juniorInTeam) {
+      await this.db.delete(teamRelations).where(eq(teamRelations.userId, junior.id));
+      await this.db.update(users).set({ parentId: null, treeLevel: 0 }).where(eq(users.id, junior.id));
+    }
+    this.logger.log(`清理了 ${juniorInTeam.length} 个初级用户的团队树位置: ${juniorInTeam.map(u => u.nickname).join(', ')}`);
+
+    return { cleaned: juniorInTeam.length, users: juniorInTeam };
+  }
+
+  /**
+   * BFS 团队树滑落（事务内）：从邀请人开始，逐层找第一个直接下级不足 3 人的节点。
+   * 与 UsersService.findParentForSliding 同逻辑，供管理员手动放位复用。
+   */
+  private async findPlacementForTx(
+    tx: PostgresJsDatabase,
+    inviterId: string,
+  ): Promise<{ parentId: string; parentRelation: typeof teamRelations.$inferSelect | null }> {
+    const queue: string[] = [inviterId];
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const children = await tx
+        .select()
+        .from(teamRelations)
+        .where(eq(teamRelations.parentId, currentId));
+
+      if (children.length < 3) {
+        const relationRows = await tx
+          .select()
+          .from(teamRelations)
+          .where(eq(teamRelations.userId, currentId))
+          .limit(1);
+        return { parentId: currentId, parentRelation: relationRows[0] ?? null };
+      }
+
+      const sortedChildren = [...children].sort((a, b) => a.position - b.position);
+      for (const c of sortedChildren) queue.push(c.userId);
+    }
+    return { parentId: inviterId, parentRelation: null };
+  }
+
+  /**
+   * 手动修复某用户的 4 级升级（新规则：首次商城付款即"待位"进树）：
+   * 1) 团队树无记录则按 BFS 滑落插入（用户 level 仍为 junior => 待位）；
+   * 2) 校正 4 级全部任务收款人（直推=邀请人；上级/上上级/上上上级按待位 path）；
+   * 3) taskIndex < completeBeforeIndex 的任务手动置完成（缺咨询单则补一条 completed）；
+   * 4) taskIndex == completeBeforeIndex 的任务置 in_progress，留给用户本人完成。
+   * 全部 5 任务完成、level 升到 level_4 即"正式"。错付资金由平台线下核对处理。
+   */
+  async fixUserLevel4Placement(
+    userId: string,
+    completeBeforeIndex = 4,
+  ): Promise<{
+    userId: string;
+    parentId: string | null;
+    treeLevel: number;
+    path: string;
+    report: Array<{ taskIndex: number; title: string; action: string; targetId: string | null }>;
+  }> {
+    const now = new Date();
+    const userRows = await this.db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const user = userRows[0];
+    if (!user) throw new NotFoundException('用户不存在');
+    const inviterId = user.inviterId;
+    if (!inviterId) throw new BadRequestException('该用户无邀请人，无法确定团队位置');
+
+    return await this.db.transaction(async (tx) => {
+      // 1) 团队树无记录则 BFS 滑落插入（待位）
+      const existRows = await tx
+        .select()
+        .from(teamRelations)
+        .where(eq(teamRelations.userId, userId))
+        .limit(1);
+      let relation: typeof teamRelations.$inferSelect;
+
+      if (existRows.length === 0) {
+        const placement = await this.findPlacementForTx(tx, inviterId);
+        const treeLevel = placement.parentRelation ? placement.parentRelation.treeLevel + 1 : 1;
+        const basePath = placement.parentRelation ? placement.parentRelation.path : ',' + inviterId + ',';
+        const path = basePath + userId + ',';
+        const childCountRows = await tx
+          .select({ c: sql<number>`count(*)` })
+          .from(teamRelations)
+          .where(eq(teamRelations.parentId, placement.parentId));
+        const position = Number(childCountRows[0]?.c ?? 0);
+        const inserted = await tx
+          .insert(teamRelations)
+          .values({ userId, parentId: placement.parentId, inviterId, treeLevel, path, position })
+          .returning();
+        relation = inserted[0];
+        await tx.update(users).set({ parentId: placement.parentId, treeLevel }).where(eq(users.id, userId));
+        const ancestorIds = path.split(',').filter((s) => s.length > 0 && s !== userId);
+        if (ancestorIds.length > 0) {
+          await tx
+            .update(users)
+            .set({ teamTotalCount: sql`${users.teamTotalCount} + 1` })
+            .where(
+              sql`${users.id} = ANY(ARRAY[${sql.join(
+                ancestorIds.map((id) => sql`${id}::uuid`),
+                sql`, `,
+              )}]::uuid[])`,
+            );
+        }
+      } else {
+        relation = existRows[0];
+      }
+
+      const path = relation.path;
+      const ancestorAt = (depth: number): string | null => {
+        const segs = path.split(',').filter((s) => s.length > 0);
+        const idx = segs.length - depth - 1;
+        return idx >= 0 ? segs[idx] ?? null : null;
+      };
+
+      // 2) 取该用户升 4 级的全部任务，按 taskIndex
+      const taskRows = await tx
+        .select()
+        .from(upgradeTasks)
+        .where(and(eq(upgradeTasks.userId, userId), eq(upgradeTasks.toLevel, LEVELS.LEVEL_4)));
+      taskRows.sort((a, b) => a.taskIndex - b.taskIndex);
+
+      const report: Array<{ taskIndex: number; title: string; action: string; targetId: string | null }> = [];
+
+      for (const t of taskRows) {
+        // 校正收款人：task1=直推(邀请人)；task2/3/4=待位 path 上 depth 1/2/3 的上级
+        let targetId: string | null = t.targetId ?? null;
+        if (t.taskType === 'consult_service') {
+          if (t.taskIndex === 1) targetId = inviterId;
+          else if (t.taskIndex >= 2) targetId = ancestorAt(t.taskIndex - 1);
+        }
+
+        if (t.taskIndex < completeBeforeIndex) {
+          // 3) 手动完成
+          await tx
+            .update(upgradeTasks)
+            .set({ status: TASK_STATUS.COMPLETED, completedAt: now, targetId })
+            .where(eq(upgradeTasks.id, t.id));
+
+          if (t.taskType === 'consult_service' && targetId) {
+            let linked = await tx.select().from(consultOrders).where(eq(consultOrders.taskId, t.id));
+            if (linked.length === 0) {
+              linked = await tx.select().from(consultOrders).where(and(
+                eq(consultOrders.studentId, userId),
+                eq(consultOrders.taskIndex, t.taskIndex),
+                eq(consultOrders.taskLevelTo, t.toLevel),
+              ));
+            }
+            if (linked.length === 0) {
+              // 缺订单则补一条 completed（资金平台线下核对）
+              let orderNo = generateOrderNo('C');
+              for (let i = 0; i < 5; i++) {
+                const dup = await tx
+                  .select({ id: consultOrders.id })
+                  .from(consultOrders)
+                  .where(eq(consultOrders.orderNo, orderNo))
+                  .limit(1);
+                if (dup.length === 0) break;
+                orderNo = generateOrderNo('C');
+              }
+              await tx.insert(consultOrders).values({
+                orderNo,
+                studentId: userId,
+                consultantId: targetId,
+                serviceType: 'upgrade_task',
+                amount: String(t.amount),
+                taskLevelFrom: t.fromLevel,
+                taskLevelTo: t.toLevel,
+                taskIndex: t.taskIndex,
+                taskId: t.id,
+                status: CONSULT_ORDER_STATUS.COMPLETED,
+                paymentConfirmedAt: now,
+                workReviewedAt: now,
+              });
+            } else {
+              await tx
+                .update(consultOrders)
+                .set({
+                  status: CONSULT_ORDER_STATUS.COMPLETED,
+                  paymentConfirmedAt: linked[0].paymentConfirmedAt ?? now,
+                  workReviewedAt: now,
+                })
+                .where(eq(consultOrders.id, linked[0].id));
+            }
+          }
+          report.push({ taskIndex: t.taskIndex, title: t.title, action: 'completed', targetId });
+        } else if (t.taskIndex === completeBeforeIndex) {
+          // 4) 待做任务置 in_progress、校正收款人
+          await tx
+            .update(upgradeTasks)
+            .set({ status: TASK_STATUS.IN_PROGRESS, targetId })
+            .where(eq(upgradeTasks.id, t.id));
+          report.push({ taskIndex: t.taskIndex, title: t.title, action: 'in_progress', targetId });
+        } else {
+          if (targetId !== t.targetId) {
+            await tx.update(upgradeTasks).set({ targetId }).where(eq(upgradeTasks.id, t.id));
+          }
+          report.push({ taskIndex: t.taskIndex, title: t.title, action: t.status, targetId });
+        }
+      }
+
+      return { userId, parentId: relation.parentId, treeLevel: relation.treeLevel, path, report };
+    });
+  }
+
   async shipMallOrder(id: string, dto: ShipDTO): Promise<MallOrderInfo> {
     const orderRows = await this.db.select().from(mallOrders).where(eq(mallOrders.id, id)).limit(1);
     const order = orderRows[0];
@@ -292,7 +584,7 @@ export class AdminService {
     const now = new Date();
     const autoDeliveryDeadline = new Date(now);
     if (isNoLogistics) {
-      autoDeliveryDeadline.setMinutes(autoDeliveryDeadline.getMinutes() + 20);
+      autoDeliveryDeadline.setSeconds(autoDeliveryDeadline.getSeconds() + 180);
     } else {
       autoDeliveryDeadline.setDate(autoDeliveryDeadline.getDate() + 15);
     }
@@ -379,6 +671,25 @@ export class AdminService {
     };
   }
 
+  /** 批量实时有效直推人数 */
+  private async effectiveDirectMap(ids: string[]): Promise<Record<string, number>> {
+    if (ids.length === 0) return {};
+    const rows = await this.db
+      .select({ inviterId: users.inviterId, n: sql<number>`count(*)::int` })
+      .from(users)
+      .innerJoin(teamRelations, eq(teamRelations.userId, users.id))
+      .where(
+        and(
+          inArray(users.inviterId, ids),
+          sql`${users.level} <> 'junior' AND ${users.assessmentStatus} IS DISTINCT FROM 'eliminated'`,
+        ),
+      )
+      .groupBy(users.inviterId);
+    const map: Record<string, number> = {};
+    for (const r of rows) map[r.inviterId] = r.n;
+    return map;
+  }
+
   async getUserList(params: UserListParams): Promise<{
     items: UserInfo[];
     total: number;
@@ -413,8 +724,11 @@ export class AdminService {
     ]);
 
     const total = Number(countResult[0]?.count ?? 0);
+    const items = itemsRaw.map((item) => this.toUserInfo(item));
+    const edm = await this.effectiveDirectMap(items.map((i) => i.id));
+    for (const it of items) it.directInviteCount = edm[it.id] ?? 0;
     return {
-      items: itemsRaw.map((item) => this.toUserInfo(item)),
+      items,
       total,
       page,
       pageSize,
@@ -424,7 +738,9 @@ export class AdminService {
   async getUserDetail(id: string): Promise<UserInfo> {
     const userRows = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
     if (userRows.length === 0) throw new NotFoundException('用户不存在');
-    return this.toUserInfo(userRows[0]);
+    const info = this.toUserInfo(userRows[0]);
+    info.directInviteCount = (await this.effectiveDirectMap([id]))[id] ?? 0;
+    return info;
   }
 
   // 修改用户手机号
@@ -701,6 +1017,13 @@ export class AdminService {
       totalConsultIncome,
       pendingReclaimAmount: String(user.pendingReclaimAmount),
       overflowLossAmount: String(user.overflowLossAmount),
+      permanentLossAmount: String((user as any).permanentLossAmount ?? '0'),
+      assessmentStatus: user.assessmentStatus ?? 'none',
+      fourStarAt: user.fourStarAt ? user.fourStarAt.toISOString() : undefined,
+      platformCollectedAmount: String(user.platformCollectedAmount ?? '0'),
+      refundRate: user.refundRate ?? undefined,
+      refundedAmount: String(user.refundedAmount ?? '0'),
+      refundStatus: user.refundStatus ?? 'none',
       thresholdBlocked: user.thresholdBlocked,
       thresholdTriggeredAt: user.thresholdTriggeredAt
         ? user.thresholdTriggeredAt.toISOString()
@@ -766,8 +1089,118 @@ export class AdminService {
       .set({ status: 'confirmed', confirmedBy: adminId, confirmedAt: new Date() })
       .where(eq(managementFees.id, feeId))
       .returning();
+    await this.restoreFeeProducts(fee);
     this.logger.log(`管理员确认推广费: feeId=${feeId}, sellerId=${fee.sellerId}`);
     return { success: true, id: updated[0].id, status: updated[0].status };
   }
 
+  /**
+   * 管理员确认推广费后，自动上架因欠费下架的商品
+   * 优先按记录的商品ID精确恢复；历史无记录时兜底恢复该卖家所有仓库商品
+   */
+  private async restoreFeeProducts(fee: { sellerId: string; warehousedProductIds?: string | null }) {
+    let ids: string[] = [];
+    if (fee.warehousedProductIds) {
+      try {
+        const parsed = JSON.parse(fee.warehousedProductIds);
+        if (Array.isArray(parsed)) ids = parsed.filter((x) => typeof x === 'string');
+      } catch {
+        ids = [];
+      }
+    }
+
+    let restored = 0;
+    if (ids.length > 0) {
+      for (const pid of ids) {
+        const r = await this.db
+          .update(products)
+          .set({ status: PRODUCT_STATUS.ON_SALE })
+          .where(and(eq(products.id, pid), eq(products.status, PRODUCT_STATUS.WAREHOUSE)))
+          .returning({ id: products.id });
+        restored += r.length;
+      }
+    } else {
+      const r = await this.db
+        .update(products)
+        .set({ status: PRODUCT_STATUS.ON_SALE })
+        .where(and(eq(products.sellerId, fee.sellerId), eq(products.status, PRODUCT_STATUS.WAREHOUSE)))
+        .returning({ id: products.id });
+      restored = r.length;
+    }
+    if (restored > 0) {
+      this.logger.log(`管理员确认推广费，自动上架商品: sellerId=${fee.sellerId}, 上架数=${restored}`);
+    }
+    return restored;
+  }
+
+
+  /**
+   * 获取四星考核返还打款申请列表（达标即自动生成，无需用户申请）：
+   * pending=待平台打款 / confirmed=已打款
+   * 每条申请附带用户本人收款二维码，平台直接扫码支付给用户
+   */
+  async getRefundList() {
+    const rows = await this.db
+      .select({
+        id: users.id,
+        phone: users.phone,
+        nickname: users.nickname,
+        realName: users.realName,
+        level: users.level,
+        assessmentStatus: users.assessmentStatus,
+        platformCollectedAmount: users.platformCollectedAmount,
+        refundRate: users.refundRate,
+        refundedAmount: users.refundedAmount,
+        refundStatus: users.refundStatus,
+        wechatQrcodeUrl: users.wechatQrcodeUrl,
+        alipayQrcodeUrl: users.alipayQrcodeUrl,
+        companyQrcodeUrl: users.companyQrcodeUrl,
+      })
+      .from(users)
+      .where(inArray(users.refundStatus, ['pending', 'confirmed']));
+
+    const result: Array<Record<string, unknown>> = [];
+    for (const r of rows) {
+      const records = await this.db
+        .select({
+          id: platformCollectionRecords.id,
+          amount: platformCollectionRecords.amount,
+          refundStatus: platformCollectionRecords.refundStatus,
+          createdAt: platformCollectionRecords.createdAt,
+        })
+        .from(platformCollectionRecords)
+        .where(eq(platformCollectionRecords.consultantId, r.id));
+      result.push({
+        ...r,
+        platformCollectedAmount: String(r.platformCollectedAmount ?? '0'),
+        refundedAmount: String(r.refundedAmount ?? '0'),
+        records: records.map((x) => ({
+          id: x.id,
+          amount: String(x.amount),
+          refundStatus: x.refundStatus,
+          createdAt: x.createdAt.toISOString(),
+        })),
+      });
+    }
+    return result;
+  }
+
+  /** 管理员确认四星返还已线下打款：refundStatus pending→confirmed，代收明细置 refunded */
+  async confirmRefundPayment(adminId: string, userId: string) {
+    const rows = await this.db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const u = rows[0];
+    if (!u) throw new NotFoundException('用户不存在');
+    if (u.refundStatus !== 'pending') {
+      throw new BadRequestException('当前状态不允许确认，需考核达标且存在待打款返还');
+    }
+    await this.db.transaction(async (tx) => {
+      await tx.update(users).set({ refundStatus: 'confirmed' }).where(eq(users.id, userId));
+      await tx
+        .update(platformCollectionRecords)
+        .set({ refundStatus: 'refunded' })
+        .where(eq(platformCollectionRecords.consultantId, userId));
+    });
+    this.logger.log(`管理员确认四星返还打款: userId=${userId}, adminId=${adminId}`);
+    return { success: true, userId, refundStatus: 'confirmed' };
+  }
 }

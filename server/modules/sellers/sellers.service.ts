@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestEx
 import { eq, and, desc, gte, lt, inArray, count, sql } from 'drizzle-orm';
 import { Inject } from '@nestjs/common';
 import { DRIZZLE_DATABASE } from '../../database/database.module';
-import { products, mallOrders, managementFees, users } from '../../database/schema';
+import { products, mallOrders, managementFees, users, systemNotifications } from '../../database/schema';
 import {
   PRODUCT_STATUS,
   MALL_ORDER_STATUS,
@@ -284,7 +284,7 @@ export class SellersService {
     const now = new Date();
     const autoDeliveryDeadline = new Date(now);
     if (isNoLogistics) {
-      autoDeliveryDeadline.setMinutes(autoDeliveryDeadline.getMinutes() + 20);
+      autoDeliveryDeadline.setSeconds(autoDeliveryDeadline.getSeconds() + 180);
     } else {
       autoDeliveryDeadline.setDate(autoDeliveryDeadline.getDate() + 15);
     }
@@ -387,8 +387,10 @@ export class SellersService {
         sellerId: mallOrders.sellerId,
         sellerName: mallOrders.sellerName,
         totalSales: sql`COALESCE(SUM(${mallOrders.totalAmount}), 0)`,
+        feeAmount: sql`COALESCE(SUM(${mallOrders.totalAmount} * COALESCE(${products.promotionFeeRate}, 0.08)), 0)`,
       })
       .from(mallOrders)
+      .leftJoin(products, eq(mallOrders.productId, products.id))
       .where(
         and(
           gte(mallOrders.paymentConfirmedAt, yesterdayStart),
@@ -404,7 +406,13 @@ export class SellersService {
       const totalSales = Number(sale.totalSales ?? 0);
       if (totalSales <= 0) continue;
 
-      const feeAmount = Math.round(totalSales * MANAGEMENT_FEE_RATE * 100) / 100;
+      const feeAmount = Math.round(Number(sale.feeAmount ?? 0) * 100) / 100;
+
+      // 0% 商品不计费：若昨日没有任何费率>0 的成交（应付推广费为0），不生成账单、也不会被下架
+      if (feeAmount <= 0) {
+        this.logger.log(`昨日应付推广费为0（可能全为0%商品），跳过账单: sellerId=${sale.sellerId}`);
+        continue;
+      }
 
       // 检查是否已生成
       const existing = await this.db
@@ -436,6 +444,21 @@ export class SellersService {
       });
 
       generatedCount++;
+
+      // 主动推送站内提醒给该卖家
+      try {
+        await this.db.insert(systemNotifications).values({
+          userId: sale.sellerId,
+          title: '推广费待缴提醒',
+          body: `昨日成交额 ¥${totalSales.toFixed(2)}，按商品推广费率今日应缴推广费 ¥${feeAmount.toFixed(2)}，请于今日12:00前在「卖家-推广费」页提交，逾期商品将自动下架。`,
+          type: 'system',
+          payload: { kind: 'management_fee', feeDate: feeDate.toISOString(), feeAmount, totalSales },
+          createdBy: null,
+        });
+      } catch (e) {
+        this.logger.warn(`推广费提醒推送失败: sellerId=${sale.sellerId}, err=${(e as Error).message}`);
+      }
+
       this.logger.log(`生成管理费: sellerId=${sale.sellerId}, totalSales=${totalSales}, feeAmount=${feeAmount}`);
     }
 
@@ -463,7 +486,7 @@ export class SellersService {
 
     let warehouseCount = 0;
     for (const fee of overdueFees) {
-      // 将该商家的所有在售商品改为仓库状态
+      // 将该商家的所有在售商品改为仓库状态，并记录被下架商品ID，便于确认费用后精确恢复
       const updated = await this.db
         .update(products)
         .set({ status: PRODUCT_STATUS.WAREHOUSE })
@@ -471,11 +494,18 @@ export class SellersService {
           and(
             eq(products.sellerId, fee.sellerId),
             eq(products.status, PRODUCT_STATUS.ON_SALE),
+            sql`COALESCE(${products.promotionFeeRate}, 0.08) > 0`, // 0% 商品永不因欠费下架
           ),
         )
-        .returning();
+        .returning({ id: products.id });
 
       warehouseCount += updated.length;
+      if (updated.length > 0) {
+        await this.db
+          .update(managementFees)
+          .set({ warehousedProductIds: JSON.stringify(updated.map((x) => x.id)) })
+          .where(eq(managementFees.id, fee.id));
+      }
       this.logger.log(`超时未付管理费，商品下架: sellerId=${fee.sellerId}, 下架商品数=${updated.length}`);
     }
 
@@ -484,12 +514,12 @@ export class SellersService {
   }
 
   /**
-   * 自动确认超过20分钟未审核的推广费（pending_review -> confirmed）
-   * 卖家提交支付凭证后，平台20分钟不审核则自动通过
+   * 自动确认超过180秒（3分钟）未审核的推广费（pending_review -> confirmed）
+   * 卖家提交支付凭证后，平台180秒（3分钟）不审核则自动通过
    */
   async autoConfirmPendingReviewFees() {
     const now = new Date();
-    const twentyMinutesAgo = new Date(now.getTime() - 20 * 60 * 1000);
+    const autoReviewWindow = new Date(now.getTime() - 3 * 60 * 1000);
 
     const overdueReview = await this.db
       .select()
@@ -497,7 +527,7 @@ export class SellersService {
       .where(
         and(
           eq(managementFees.status, MANAGEMENT_FEE_STATUS.PENDING_REVIEW),
-          lt(managementFees.paidAt, twentyMinutesAgo),
+          lt(managementFees.paidAt, autoReviewWindow),
         ),
       );
 
@@ -510,14 +540,55 @@ export class SellersService {
           confirmedAt: now,
         })
         .where(eq(managementFees.id, fee.id));
+      await this.restoreWarehousedProducts(fee);
       confirmedCount++;
-      this.logger.log(`推广费超时20分钟自动确认: feeId=${fee.id}, sellerId=${fee.sellerId}, amount=${fee.feeAmount}`);
+      this.logger.log(`推广费超时180秒自动确认: feeId=${fee.id}, sellerId=${fee.sellerId}, amount=${fee.feeAmount}`);
     }
 
     if (confirmedCount > 0) {
       this.logger.log(`推广费自动确认完成，共确认 ${confirmedCount} 条`);
     }
     return { confirmedCount };
+  }
+
+  /**
+   * 推广费确认后，自动恢复因欠费下架的商品
+   * 优先按记录的商品ID精确上架；历史数据无记录时，兜底恢复该卖家所有仓库商品
+   */
+  async restoreWarehousedProducts(fee: { sellerId: string; warehousedProductIds?: string | null }) {
+    let ids: string[] = [];
+    if (fee.warehousedProductIds) {
+      try {
+        const parsed = JSON.parse(fee.warehousedProductIds);
+        if (Array.isArray(parsed)) ids = parsed.filter((x) => typeof x === 'string');
+      } catch {
+        ids = [];
+      }
+    }
+
+    let restored = 0;
+    if (ids.length > 0) {
+      for (const pid of ids) {
+        const r = await this.db
+          .update(products)
+          .set({ status: PRODUCT_STATUS.ON_SALE })
+          .where(and(eq(products.id, pid), eq(products.status, PRODUCT_STATUS.WAREHOUSE)))
+          .returning({ id: products.id });
+        restored += r.length;
+      }
+    } else {
+      const r = await this.db
+        .update(products)
+        .set({ status: PRODUCT_STATUS.ON_SALE })
+        .where(and(eq(products.sellerId, fee.sellerId), eq(products.status, PRODUCT_STATUS.WAREHOUSE)))
+        .returning({ id: products.id });
+      restored = r.length;
+    }
+
+    if (restored > 0) {
+      this.logger.log(`推广费已确认，自动上架商品: sellerId=${fee.sellerId}, 上架数=${restored}`);
+    }
+    return restored;
   }
 
   // ==================== 统计 ====================

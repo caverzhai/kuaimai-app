@@ -58,7 +58,12 @@ export class OcrService {
         };
       }
 
-      return { success: false, error: result?.Message || '识别结果为空' };
+      // 未识别到有效身份证（图片不是身份证 / 不清晰 / 图片URL无法访问等）：归一化为明确中文提示，不暴露笼统内部错误
+      return {
+        success: false,
+        error: '未识别到有效身份证：请上传清晰、完整、无遮挡、无反光的身份证正面照片',
+        raw: result,
+      };
     } catch (error: any) {
       this.logger.error(`OCR识别失败: ${error.message}`);
       return {

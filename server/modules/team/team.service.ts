@@ -36,7 +36,7 @@ export class TeamService {
 
   // ── Team Tree ──────────────────────────────────────────────────
 
-  async getTeamTree(userId: string, isInvited: boolean): Promise<TeamInfo> {
+  async getTeamTree(userId: string): Promise<TeamInfo> {
     // 查询当前用户基本信息
     const currentUsers: Pick<UserSelect, 'id' | 'nickname' | 'avatarUrl' | 'level' | 'directInviteCount' | 'teamTotalCount'>[] =
       await this.db
@@ -144,9 +144,19 @@ export class TeamService {
 
     const tree = buildTree(currentUser.id);
 
+    // 有效直推人数：直接邀请 + 已完成4级(level<>junior) + 真实在团队树中；排除已淘汰号
+    const effRows = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(users)
+      .innerJoin(teamRelations, eq(teamRelations.userId, users.id))
+      .where(
+        sql`${users.inviterId} = ${userId} AND ${users.level} <> 'junior' AND ${users.assessmentStatus} IS DISTINCT FROM 'eliminated'`,
+      );
+    const effectiveDirect = effRows[0]?.n ?? 0;
+
     return {
       tree,
-      directInviteCount: currentUser.directInviteCount,
+      directInviteCount: effectiveDirect,
       teamTotalCount: currentUser.teamTotalCount,
     };
   }

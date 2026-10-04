@@ -18,6 +18,10 @@ import { ChatMessagesModule } from './modules/chat-messages/chat-messages.module
 import { FriendsModule } from './modules/friends/friends.module';
 import { OcrModule } from './modules/ocr/ocr.module';
 import { SellersModule } from './modules/sellers/sellers.module';
+import { MeetingModule } from './modules/meeting/meeting.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { StatsModule } from './modules/stats/stats.module';
+import { IosEnrollModule } from './modules/ios-enroll/ios-enroll.module';
 
 @Module({
   imports: [
@@ -43,6 +47,10 @@ import { SellersModule } from './modules/sellers/sellers.module';
     FriendsModule,
     OcrModule,
     SellersModule,
+    MeetingModule,
+    NotificationsModule,
+    StatsModule,
+    IosEnrollModule,
   ],
   providers: [
     {

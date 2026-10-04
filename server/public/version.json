@@ -1,1 +1,8 @@
-{"version":"2.34.16","versionCode":154,"downloadUrl":"https://backend-production-5d79.up.railway.app/download/kuaimai.apk","releaseNotes":"修复APP页面切换卡顿：移除同步阻塞请求","forceUpdate":true,"forceUpdateBelowCode":154}
+{
+  "version": "3.3.9",
+  "versionCode": 339,
+  "forceUpdate": true,
+  "forceUpdateBelowCode": 339,
+  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai3.3.9.apk",
+  "releaseNotes": "新增苹果手机 App 独立安装申请入口（4级及以上在「我的」页），并修复版本更新问题。"
+}

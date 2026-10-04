@@ -28,6 +28,13 @@ export class UpgradeController {
     return this.upgradeService.getUpgradeCenter(userId);
   }
 
+  @Post('confirm')
+  @UseGuards(AuthGuard)
+  async confirmNextLevel(@Req() req: Request): Promise<UpgradeCenterInfo> {
+    const userId: string = req.user!.userId;
+    return this.upgradeService.confirmNextLevel(userId);
+  }
+
   @Post('tasks/:taskId/start')
   @UseGuards(AuthGuard)
   async startTask(

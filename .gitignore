@@ -52,3 +52,11 @@ kuaimai-source.zip
 .railway/
 
 apk_check_tmp/
+
+# User uploads (persistent volume, do not commit)
+server/public/uploads/
+
+# Backups and one-off CI scripts
+*.bak
+server/e2e-ios.cjs
+server/cleanup-ios.cjs

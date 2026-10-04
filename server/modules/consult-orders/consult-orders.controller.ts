@@ -12,6 +12,7 @@ import type { Request } from 'express';
 
 import { AuthGuard } from '@server/common/guards/auth.guard';
 import { ConsultOrdersService } from './consult-orders.service';
+import { PendingOrdersService } from '../pending-orders/pending-orders.service';
 import type {
   ConsultOrderInfo,
   CreateConsultOrderDTO,
@@ -25,6 +26,7 @@ import type {
 export class ConsultOrdersController {
   constructor(
     private readonly consultOrdersService: ConsultOrdersService,
+    private readonly pendingOrdersService: PendingOrdersService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -34,8 +36,9 @@ export class ConsultOrdersController {
     @Body() dto: CreateConsultOrderDTO,
   ): Promise<ConsultOrderInfo> {
     const userId = req.user!.userId;
-    const isInvited = req.user!.isInvited;
-    return this.consultOrdersService.create(userId, isInvited, dto);
+    // 全局待付款拦截：有未付款订单时禁止再创建，避免新手重复下单
+    await this.pendingOrdersService.assertNoPending(userId);
+    return this.consultOrdersService.create(userId, dto);
   }
 
   @UseGuards(AuthGuard)

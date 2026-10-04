@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DRIZZLE_DATABASE } from '../../database/database.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, or, inArray, count, isNotNull, sql } from 'drizzle-orm';
 
 import type {
   UpgradeCenterInfo,
@@ -11,11 +11,15 @@ import {
   LEVELS,
   TASK_STATUS,
   TASK_TYPE,
+  MALL_ORDER_STATUS,
+  CONSULT_ORDER_STATUS,
 } from '@shared/api.interface';
 import {
   upgradeTasks,
   users,
   teamRelations,
+  mallOrders,
+  consultOrders,
 } from '@server/database/schema';
 import {
   BadRequestException,
@@ -23,6 +27,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { generateInviteCode } from '@server/common/utils/auth.util';
+import { UsersService } from '../users/users.service';
 
 type UpgradeTaskSelect = typeof upgradeTasks.$inferSelect;
 type UserSelect = typeof users.$inferSelect;
@@ -108,36 +113,95 @@ export class UpgradeService {
 
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
+    private readonly usersService: UsersService,
   ) {}
 
   // ── Public API ────────────────────────────────────────────────
 
-  async getUpgradeCenter(userId: string): Promise<UpgradeCenterInfo> {
+  /** 计算当前用户的下一级与任务定义；返回 null 表示已到顶 */
+  private async getStageContext(userId: string): Promise<{
+    user: UserSelect;
+    currentLevel: string;
+    nextLevel: string;
+    defs: TaskDefinition[];
+  } | null> {
     const user: UserSelect | undefined = (
       await this.db.select().from(users).where(eq(users.id, userId)).limit(1)
     )[0];
     if (!user) {
       throw new NotFoundException('用户不存在');
     }
-
     const currentLevel: string = user.level;
     const currentIdx: number = LEVEL_ORDER.indexOf(currentLevel);
-
-    if (currentIdx === -1 || currentIdx >= LEVEL_ORDER.length - 1) {
-      return {
-        currentLevel,
-        tasks: [],
-      };
-    }
-
+    if (currentIdx === -1 || currentIdx >= LEVEL_ORDER.length - 1) return null;
     const nextLevel: string = LEVEL_ORDER[currentIdx + 1];
-    const stageKey: string = `${currentLevel}->${nextLevel}`;
-    const defs: TaskDefinition[] = TASK_DEFINITIONS[stageKey] || [];
+    const defs: TaskDefinition[] = TASK_DEFINITIONS[`${currentLevel}->${nextLevel}`] || [];
+    if (defs.length === 0) return null;
+    return { user, currentLevel, nextLevel, defs };
+  }
 
-    if (defs.length === 0) {
-      return { currentLevel, nextLevel, tasks: [] };
+  async getUpgradeCenter(userId: string): Promise<UpgradeCenterInfo> {
+    const ctx = await this.getStageContext(userId);
+    if (!ctx) {
+      const lv: string = (
+        await this.db.select().from(users).where(eq(users.id, userId)).limit(1)
+      )[0]?.level ?? '';
+      return { currentLevel: lv, tasks: [] };
+    }
+    const { currentLevel, nextLevel, defs } = ctx;
+
+    // 硬门禁：未绑定邀请人，取消已生成任务，强制先补绑邀请人，绑定前不开放任何任务
+    if (!ctx.user.isInvited) {
+      await this.clearTasksForUnbound(userId);
+      return { currentLevel, tasks: [], needBindInviter: true };
     }
 
+    // 先查该级是否已生成过任务：为 0 说明用户尚未确认升级，先出确认按钮，不开放任务
+    const existingRow: { count: number | string }[] = await this.db
+      .select({ count: count() })
+      .from(upgradeTasks)
+      .where(
+        and(
+          eq(upgradeTasks.userId, userId),
+          eq(upgradeTasks.fromLevel, currentLevel),
+          eq(upgradeTasks.toLevel, nextLevel),
+        ),
+      );
+    // 第一次升级（初级->四级）是用户的首个任务，直接自动开始，不弹确认；
+    // 完成四级之后再往上，才需要本人确认升级
+    const isFirstStage = nextLevel === 'level_4';
+    if (!isFirstStage && Number(existingRow[0]?.count ?? 0) === 0) {
+      return { currentLevel, nextLevel, tasks: [], needConfirmUpgrade: true };
+    }
+
+    return this.buildCenterInfo(userId, currentLevel, nextLevel, defs);
+  }
+
+  /** 用户本人确认要升级后，才生成并开放整级任务 */
+  async confirmNextLevel(userId: string): Promise<UpgradeCenterInfo> {
+    const ctx = await this.getStageContext(userId);
+    if (!ctx) {
+      const lv: string = (
+        await this.db.select().from(users).where(eq(users.id, userId)).limit(1)
+      )[0]?.level ?? '';
+      return { currentLevel: lv, tasks: [] };
+    }
+    const { currentLevel, nextLevel, defs } = ctx;
+    if (!ctx.user.isInvited) {
+      await this.clearTasksForUnbound(userId);
+      return { currentLevel, tasks: [], needBindInviter: true };
+    }
+    await this.ensureTasks(userId, currentLevel, nextLevel, defs);
+    return this.buildCenterInfo(userId, currentLevel, nextLevel, defs);
+  }
+
+  /** 已确认升级后：补齐任务、自动开始、修复旧数据，返回完整任务列表 */
+  private async buildCenterInfo(
+    userId: string,
+    currentLevel: string,
+    nextLevel: string,
+    defs: TaskDefinition[],
+  ): Promise<UpgradeCenterInfo> {
     // Ensure tasks exist
     await this.ensureTasks(userId, currentLevel, nextLevel, defs);
 
@@ -154,45 +218,134 @@ export class UpgradeService {
       )
       .orderBy(upgradeTasks.taskIndex);
 
-    // Fix old tasks: assign admin as target if consult task has no targetId
+    // Fix old tasks: 无 targetId 的咨询任务按"自己path->直推人path"重算真实收款人，仍无才兜底管理员
     const ADMIN_ID = '4b51567f-8020-415c-8b5d-1de2f28e141d';
+    const fixOwner = (
+      await this.db.select().from(users).where(eq(users.id, userId)).limit(1)
+    )[0];
+    const fixSelfTeam = (
+      await this.db.select().from(teamRelations).where(eq(teamRelations.userId, userId)).limit(1)
+    )[0];
+    let fixInviterTeam: TeamRelationSelect | undefined;
+    if (fixOwner?.inviterId) {
+      fixInviterTeam = (
+        await this.db.select().from(teamRelations).where(eq(teamRelations.userId, fixOwner.inviterId)).limit(1)
+      )[0];
+    }
+    const inTree: boolean = !!fixSelfTeam?.path;
     for (let i = 0; i < taskRows.length; i++) {
       const task = taskRows[i];
-      if (
-        task.taskType === TASK_TYPE.CONSULT_SERVICE &&
-        !task.targetId
-      ) {
+      if (task.taskType !== TASK_TYPE.CONSULT_SERVICE) continue;
+      if (task.status === TASK_STATUS.COMPLETED) continue;
+      const fdef = defs.find((d) => d.taskIndex === task.taskIndex);
+      const isAncestor = !!fdef?.targetKind?.startsWith('ancestor_');
+
+      // 资金安全：已有在途/已完成订单（钱已付），不改收款人
+      const tOrders = await this.db
+        .select({ status: consultOrders.status })
+        .from(consultOrders)
+        .where(eq(consultOrders.taskId, task.id));
+      const hasLiveOrder = tOrders.some(
+        (o) => o.status !== CONSULT_ORDER_STATUS.PENDING_PAYMENT,
+      );
+
+      const patch: Record<string, string | null> = {};
+
+      if (inTree) {
+        // 已进树（位置已锁定）：按真实 path 确定收款人并解锁
+        let expected: string | null = null;
+        if (fdef?.targetKind === 'inviter') expected = fixOwner?.inviterId ?? null;
+        else if (isAncestor) {
+          const fd = Number(fdef.targetKind.slice('ancestor_'.length));
+          expected = this.getAncestorFromPath(fixSelfTeam.path, fd);
+        }
+        if (!expected) expected = ADMIN_ID;
+        if (!hasLiveOrder && expected !== task.targetId) {
+          patch.targetId = expected;
+          await this.db
+            .delete(consultOrders)
+            .where(
+              and(
+                eq(consultOrders.taskId, task.id),
+                eq(consultOrders.status, CONSULT_ORDER_STATUS.PENDING_PAYMENT),
+              ),
+            );
+        }
+        if (
+          task.status !== TASK_STATUS.IN_PROGRESS &&
+          task.status !== TASK_STATUS.SUBMITTED
+        ) {
+          patch.status = TASK_STATUS.IN_PROGRESS;
+        }
+      } else if (isAncestor) {
+        // 未进树：上级类任务锁定，不生成订单（商城付款进树后由 placePendingUser 解锁）
+        await this.db
+          .delete(consultOrders)
+          .where(
+            and(
+              eq(consultOrders.taskId, task.id),
+              eq(consultOrders.status, CONSULT_ORDER_STATUS.PENDING_PAYMENT),
+            ),
+          );
+        if (task.targetId) patch.targetId = null;
+        if (task.status !== TASK_STATUS.PENDING) patch.status = TASK_STATUS.PENDING;
+      } else {
+        // 未进树的直推（inviter）任务：与位置无关，保持可做
+        if (
+          !hasLiveOrder &&
+          fixOwner?.inviterId &&
+          fixOwner.inviterId !== task.targetId
+        ) {
+          patch.targetId = fixOwner.inviterId;
+        }
+        if (
+          task.status !== TASK_STATUS.IN_PROGRESS &&
+          task.status !== TASK_STATUS.SUBMITTED
+        ) {
+          patch.status = TASK_STATUS.IN_PROGRESS;
+        }
+      }
+
+      if (Object.keys(patch).length > 0) {
         await this.db
           .update(upgradeTasks)
-          .set({ targetId: ADMIN_ID })
+          .set(patch)
           .where(eq(upgradeTasks.id, task.id));
-        taskRows[i] = { ...task, targetId: ADMIN_ID };
+        taskRows[i] = { ...task, ...patch };
         this.logger.log(
-          `Assigned admin as target for task: taskId=${task.id}, index=${task.taskIndex}`,
+          `buildCenterInfo fix idx=${task.taskIndex} inTree=${inTree} target=${patch.targetId !== undefined ? patch.targetId : task.targetId} status=${patch.status ?? task.status}`,
         );
       }
     }
 
-    // Auto-start next task if previous task is completed (fix for old tasks)
-    this.logger.log(
-      `Auto-start check: userId=${userId}, taskCount=${taskRows.length}, tasks=${taskRows.map(t => `idx=${t.taskIndex},status=${t.status},target=${t.targetId ? 'yes' : 'no'}`).join('|')}`,
-    );
-    for (let i = 1; i < taskRows.length; i++) {
-      const prevTask = taskRows[i - 1];
+    // 存量修正：进行中任务若已上传付款凭证（订单待审核），改为 submitted
+    await this.reconcileSubmittedTasks(userId, taskRows);
+
+    // 兜底自动放开：mall 与直推任务可直接放开；上级类仅在进树后放开
+    for (let i = 0; i < taskRows.length; i++) {
       const currTask = taskRows[i];
-      // Auto-start if previous task completed and current task is pending or unavailable
       if (
-        prevTask.status === TASK_STATUS.COMPLETED &&
-        (currTask.status === TASK_STATUS.PENDING || currTask.status === UNAVAILABLE_STATUS)
+        currTask.status !== TASK_STATUS.PENDING &&
+        currTask.status !== UNAVAILABLE_STATUS
       ) {
+        continue;
+      }
+      const fdef = defs.find((d) => d.taskIndex === currTask.taskIndex);
+      let canAuto = false;
+      if (currTask.taskType === TASK_TYPE.MALL_PURCHASE) {
+        canAuto = true;
+      } else if (fdef?.targetKind === 'inviter') {
+        canAuto = true;
+      } else {
+        canAuto = inTree; // 上级类：仅进树后放开
+      }
+      if (canAuto) {
         await this.db
           .update(upgradeTasks)
           .set({ status: TASK_STATUS.IN_PROGRESS })
           .where(eq(upgradeTasks.id, currTask.id));
         taskRows[i] = { ...currTask, status: TASK_STATUS.IN_PROGRESS };
-        this.logger.log(
-          `Auto-started task on getUpgradeCenter: taskId=${currTask.id}, index=${currTask.taskIndex}, oldStatus=${currTask.status}`,
-        );
+        this.logger.log(`Auto-started task idx=${currTask.taskIndex}`);
       }
     }
 
@@ -201,7 +354,7 @@ export class UpgradeService {
         this.mapTaskInfo(row),
     );
 
-    return { currentLevel, nextLevel, tasks };
+    return { currentLevel, nextLevel, tasks, treeLocked: !inTree };
   }
 
   async startTask(taskId: string, userId: string): Promise<UpgradeTaskInfo> {
@@ -219,6 +372,14 @@ export class UpgradeService {
     if (task.userId !== userId) {
       throw new ForbiddenException('无权操作此任务');
     }
+    const ownerRows = await this.db
+      .select({ isInvited: users.isInvited })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!ownerRows[0]?.isInvited) {
+      throw new BadRequestException('您还未绑定邀请人，无法开始任务。请先到「任务中心」补充邀请码激活账号');
+    }
     if (task.status === UNAVAILABLE_STATUS) {
       throw new BadRequestException('任务不可用（无目标上级）');
     }
@@ -226,26 +387,26 @@ export class UpgradeService {
       throw new BadRequestException('任务状态不允许开始');
     }
 
-    // Check previous task is completed
-    if (task.taskIndex > 0) {
-      const prevTask: UpgradeTaskSelect | undefined = (
+    // 上级类任务门禁：未进树（团队位置未锁定）不得开始
+    const stageDef = (
+      TASK_DEFINITIONS[`${task.fromLevel}->${task.toLevel}`] || []
+    ).find((d) => d.taskIndex === task.taskIndex);
+    if (stageDef?.targetKind.startsWith('ancestor_')) {
+      const selfTeam = (
         await this.db
           .select()
-          .from(upgradeTasks)
-          .where(
-            and(
-              eq(upgradeTasks.userId, userId),
-              eq(upgradeTasks.fromLevel, task.fromLevel),
-              eq(upgradeTasks.toLevel, task.toLevel),
-              eq(upgradeTasks.taskIndex, task.taskIndex - 1),
-            ),
-          )
+          .from(teamRelations)
+          .where(eq(teamRelations.userId, userId))
           .limit(1)
       )[0];
-      if (!prevTask || prevTask.status !== TASK_STATUS.COMPLETED) {
-        throw new BadRequestException('请先完成前一个任务');
+      if (!selfTeam?.path) {
+        throw new BadRequestException(
+          '请先完成「商城购买」任务并上传付款凭证，系统锁定团队位置后，该任务会自动解锁',
+        );
       }
     }
+
+    // 并行任务：不再要求前一任务完成/传凭证，任意任务都可直接开始
 
     const updated: UpgradeTaskSelect[] = await this.db
       .update(upgradeTasks)
@@ -258,6 +419,192 @@ export class UpgradeService {
     }
 
     return this.mapTaskInfo(updated[0]);
+  }
+
+  /**
+   * 扶正"生成时因邀请人/团队树尚未就绪而错误兜底给管理员"的未付款咨询任务。
+   * 仅处理 target=管理员、且无审核中/已付款订单的任务，按当前团队关系重算收款人：
+   *  - 能算到具体上级：删除残留的管理员未付款订单，改指正确收款人；
+   *  - 仍无合格上级：保留管理员（属正常兜底）。
+   * 已付款 / 已完成 / 审核中任务一律不动。
+   */
+  async reconcileAdminTargets(): Promise<{
+    placed: number;
+    placedDetail: string[];
+    fixed: number;
+    keptAdmin: number;
+    locked: number;
+    skipped: number;
+    fixedDetail: string[];
+    keptAdminDetail: string[];
+    lockedDetail: string[];
+  }> {
+    const ADMIN_ID = '4b51567f-8020-415c-8b5d-1de2f28e141d';
+    const fixedDetail: string[] = [];
+    const keptAdminDetail: string[] = [];
+    const lockedDetail: string[] = [];
+    let skipped = 0;
+    let placed = 0;
+    const placedDetail: string[] = [];
+
+    // Step 1: 已付商城款、应进树却没进树的用户，补放进树（幂等、并发安全，并校正 level_4 任务收款人）
+    const invitedUsers = await this.db
+      .select({ id: users.id, phone: users.phone })
+      .from(users)
+      .where(isNotNull(users.inviterId));
+    const inTreeIds = new Set(
+      (
+        await this.db
+          .select({ userId: teamRelations.userId })
+          .from(teamRelations)
+      ).map((r) => r.userId),
+    );
+    for (const cand of invitedUsers) {
+      if (inTreeIds.has(cand.id)) continue;
+      const m0rows = await this.db
+        .select({ status: upgradeTasks.status })
+        .from(upgradeTasks)
+        .where(
+          and(
+            eq(upgradeTasks.userId, cand.id),
+            eq(upgradeTasks.taskType, TASK_TYPE.MALL_PURCHASE),
+            eq(upgradeTasks.taskIndex, 0),
+          ),
+        );
+      const paid0 = m0rows.some(
+        (t) =>
+          t.status === TASK_STATUS.SUBMITTED ||
+          t.status === TASK_STATUS.COMPLETED,
+      );
+      if (!paid0) continue;
+      try {
+        await this.usersService.placePendingUser(cand.id);
+        placed += 1;
+        placedDetail.push(cand.phone);
+      } catch (e) {
+        this.logger.error(`reconcile place failed: ${cand.phone} ${e}`);
+      }
+    }
+
+    const adminTasks: UpgradeTaskSelect[] = await this.db
+      .select()
+      .from(upgradeTasks)
+      .where(
+        and(
+          eq(upgradeTasks.targetId, ADMIN_ID),
+          inArray(upgradeTasks.status, [
+            TASK_STATUS.PENDING,
+            TASK_STATUS.IN_PROGRESS,
+          ]),
+        ),
+      );
+
+    for (const task of adminTasks) {
+      const stageKey = `${task.fromLevel}->${task.toLevel}`;
+      const def = (TASK_DEFINITIONS[stageKey] || []).find(
+        (d) => d.taskIndex === task.taskIndex,
+      );
+      if (!def || def.taskType !== TASK_TYPE.CONSULT_SERVICE) {
+        skipped += 1;
+        continue;
+      }
+
+      // 该任务若已有非"待付款"订单，说明钱已在途/审核中，不能扶正
+      const existOrders = await this.db
+        .select()
+        .from(consultOrders)
+        .where(eq(consultOrders.taskId, task.id));
+      if (
+        existOrders.some(
+          (o) => o.status !== CONSULT_ORDER_STATUS.PENDING_PAYMENT,
+        )
+      ) {
+        skipped += 1;
+        continue;
+      }
+
+      const owner = (
+        await this.db
+          .select()
+          .from(users)
+          .where(eq(users.id, task.userId))
+          .limit(1)
+      )[0];
+      const teamRow = (
+        await this.db
+          .select()
+          .from(teamRelations)
+          .where(eq(teamRelations.userId, task.userId))
+          .limit(1)
+      )[0];
+
+      if (def.targetKind.startsWith('ancestor_') && !teamRow?.path) {
+        // 未进树：上级类任务锁定（不生成订单），等商城付款进树后解锁
+        await this.db
+          .delete(consultOrders)
+          .where(
+            and(
+              eq(consultOrders.taskId, task.id),
+              eq(consultOrders.status, CONSULT_ORDER_STATUS.PENDING_PAYMENT),
+            ),
+          );
+        await this.db
+          .update(upgradeTasks)
+          .set({ targetId: null, status: TASK_STATUS.PENDING })
+          .where(eq(upgradeTasks.id, task.id));
+        lockedDetail.push(`${owner?.phone ?? task.userId}:i${task.taskIndex}`);
+        continue;
+      }
+
+      let expected: string | null = null;
+      if (def.targetKind === 'inviter') {
+        expected = owner?.inviterId ?? null;
+      } else if (def.targetKind.startsWith('ancestor_')) {
+        const depth = Number(def.targetKind.slice('ancestor_'.length));
+        expected = this.getAncestorFromPath(teamRow?.path, depth);
+      }
+
+      if (expected && expected !== ADMIN_ID) {
+        await this.db
+          .delete(consultOrders)
+          .where(
+            and(
+              eq(consultOrders.taskId, task.id),
+              eq(consultOrders.consultantId, ADMIN_ID),
+              eq(
+                consultOrders.status,
+                CONSULT_ORDER_STATUS.PENDING_PAYMENT,
+              ),
+            ),
+          );
+        await this.db
+          .update(upgradeTasks)
+          .set({ targetId: expected, status: TASK_STATUS.IN_PROGRESS })
+          .where(eq(upgradeTasks.id, task.id));
+        fixedDetail.push(
+          `${owner?.phone ?? task.userId}:i${task.taskIndex}->${expected}`,
+        );
+      } else {
+        keptAdminDetail.push(
+          `${owner?.phone ?? task.userId}:i${task.taskIndex}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `reconcileAdminTargets: placed=${placed}, fixed=${fixedDetail.length}, keptAdmin=${keptAdminDetail.length}, locked=${lockedDetail.length}, skipped=${skipped}`,
+    );
+    return {
+      placed,
+      placedDetail,
+      fixed: fixedDetail.length,
+      keptAdmin: keptAdminDetail.length,
+      locked: lockedDetail.length,
+      skipped,
+      fixedDetail,
+      keptAdminDetail,
+      lockedDetail,
+    };
   }
 
   /**
@@ -301,7 +648,7 @@ export class UpgradeService {
     mallOrderId: string,
     totalAmount: string,
   ): Promise<void> {
-    // Find any pending or in-progress mall task for this user
+    // Find any pending/in-progress/submitted mall task for this user
     const inProgressTasks: UpgradeTaskSelect[] = await this.db
       .select()
       .from(upgradeTasks)
@@ -310,6 +657,7 @@ export class UpgradeService {
           eq(upgradeTasks.userId, userId),
           or(
             eq(upgradeTasks.status, TASK_STATUS.IN_PROGRESS),
+            eq(upgradeTasks.status, TASK_STATUS.SUBMITTED),
             eq(upgradeTasks.status, TASK_STATUS.PENDING),
           ),
           eq(upgradeTasks.taskType, TASK_TYPE.MALL_PURCHASE),
@@ -342,7 +690,11 @@ export class UpgradeService {
       .where(
         and(
           eq(upgradeTasks.userId, userId),
-          eq(upgradeTasks.status, TASK_STATUS.IN_PROGRESS),
+          inArray(upgradeTasks.status, [
+            TASK_STATUS.IN_PROGRESS,
+            TASK_STATUS.SUBMITTED,
+            TASK_STATUS.PENDING,
+          ]),
           eq(upgradeTasks.taskType, TASK_TYPE.CONSULT_SERVICE),
         ),
       );
@@ -353,6 +705,161 @@ export class UpgradeService {
       if (Number(task.amount) === Number(amount)) {
         await this.completeTask(task.id, { orderId });
       }
+    }
+  }
+
+  /**
+   * 存量修正：IN_PROGRESS 任务若已上传付款凭证（订单进入待审核），改为 SUBMITTED
+   * 直接修改传入的 taskRows（内存）与数据库
+   */
+  private async reconcileSubmittedTasks(
+    userId: string,
+    taskRows: UpgradeTaskSelect[],
+  ): Promise<void> {
+    const inProgress: UpgradeTaskSelect[] = taskRows.filter(
+      (t) => t.status === TASK_STATUS.IN_PROGRESS,
+    );
+    if (inProgress.length === 0) return;
+
+    const toSubmitIds = new Set<string>();
+
+    // 商城任务：批量查已上传凭证的商城订单（待审核/待发货/待收货），金额匹配
+    const mallTasks = inProgress.filter((t) => t.taskType === TASK_TYPE.MALL_PURCHASE);
+    if (mallTasks.length > 0) {
+      const mallOrderRows = await this.db
+        .select()
+        .from(mallOrders)
+        .where(
+          and(
+            eq(mallOrders.userId, userId),
+            inArray(mallOrders.status, [
+              MALL_ORDER_STATUS.PENDING_REVIEW,
+              MALL_ORDER_STATUS.PENDING_SHIPMENT,
+              MALL_ORDER_STATUS.PENDING_DELIVERY,
+            ]),
+          ),
+        );
+      for (const t of mallTasks) {
+        if (mallOrderRows.some((o) => Number(o.totalAmount) >= Number(t.amount))) {
+          toSubmitIds.add(t.id);
+        }
+      }
+    }
+
+    // 咨询任务：批量查该批任务已上传凭证的咨询订单（待确认/服务中/待审核）
+    const consultTasks = inProgress.filter((t) => t.taskType === TASK_TYPE.CONSULT_SERVICE);
+    if (consultTasks.length > 0) {
+      const consultTaskIds = consultTasks.map((t) => t.id);
+      const consultOrderRows = await this.db
+        .select()
+        .from(consultOrders)
+        .where(
+          and(
+            eq(consultOrders.studentId, userId),
+            inArray(consultOrders.taskId, consultTaskIds),
+            inArray(consultOrders.status, [
+              CONSULT_ORDER_STATUS.PENDING_CONFIRM,
+              CONSULT_ORDER_STATUS.IN_SERVICE,
+              CONSULT_ORDER_STATUS.PENDING_REVIEW,
+            ]),
+          ),
+        );
+      const submittedTaskIds = new Set<string>(
+        consultOrderRows.map((o) => o.taskId).filter((x): x is string => !!x),
+      );
+      for (const t of consultTasks) {
+        if (submittedTaskIds.has(t.id)) toSubmitIds.add(t.id);
+      }
+    }
+
+    for (let i = 0; i < taskRows.length; i++) {
+      if (toSubmitIds.has(taskRows[i].id)) {
+        await this.db
+          .update(upgradeTasks)
+          .set({ status: TASK_STATUS.SUBMITTED })
+          .where(eq(upgradeTasks.id, taskRows[i].id));
+        taskRows[i] = { ...taskRows[i], status: TASK_STATUS.SUBMITTED };
+        this.logger.log(`Reconciled task to submitted: taskId=${taskRows[i].id}`);
+      }
+    }
+  }
+
+  /**
+   * 实时：咨询订单上传付款凭证后调用（按 taskId）
+   * 任务 IN_PROGRESS → SUBMITTED，并解锁下一任务
+   */
+  async markTaskSubmittedByTaskId(taskId: string | null | undefined): Promise<void> {
+    if (!taskId) return;
+    const task: UpgradeTaskSelect | undefined = (
+      await this.db.select().from(upgradeTasks).where(eq(upgradeTasks.id, taskId)).limit(1)
+    )[0];
+    if (!task || task.status !== TASK_STATUS.IN_PROGRESS) return;
+    await this.db
+      .update(upgradeTasks)
+      .set({ status: TASK_STATUS.SUBMITTED })
+      .where(eq(upgradeTasks.id, task.id));
+    this.logger.log(`Task marked submitted (consult): taskId=${task.id}`);
+    await this.unlockNextTask({ ...task, status: TASK_STATUS.SUBMITTED });
+  }
+
+  /**
+   * 实时：商城订单上传付款凭证后调用（金额匹配）
+   * 匹配的 IN_PROGRESS mall_purchase 任务 → SUBMITTED，并解锁下一任务
+   */
+  async markMallTaskSubmitted(userId: string, totalAmount: string): Promise<void> {
+    const tasks: UpgradeTaskSelect[] = await this.db
+      .select()
+      .from(upgradeTasks)
+      .where(
+        and(
+          eq(upgradeTasks.userId, userId),
+          eq(upgradeTasks.status, TASK_STATUS.IN_PROGRESS),
+          eq(upgradeTasks.taskType, TASK_TYPE.MALL_PURCHASE),
+        ),
+      );
+    for (const task of tasks) {
+      if (Number(totalAmount) >= Number(task.amount)) {
+        await this.db
+          .update(upgradeTasks)
+          .set({ status: TASK_STATUS.SUBMITTED })
+          .where(eq(upgradeTasks.id, task.id));
+        this.logger.log(`Task marked submitted (mall): taskId=${task.id}`);
+        await this.unlockNextTask({ ...task, status: TASK_STATUS.SUBMITTED });
+      }
+    }
+
+    // 首次商城付款（上传凭证）即"待位"进树；并发安全、幂等（已在树自动跳过）
+    try {
+      await this.usersService.placePendingUser(userId);
+    } catch (e) {
+      this.logger.error(`待位放位失败: ${e}`);
+    }
+  }
+
+  /**
+   * 解锁下一任务：当前阶段下一个 PENDING/unavailable 任务 → IN_PROGRESS
+   */
+  private async unlockNextTask(task: UpgradeTaskSelect): Promise<void> {
+    const next: UpgradeTaskSelect | undefined = (
+      await this.db
+        .select()
+        .from(upgradeTasks)
+        .where(
+          and(
+            eq(upgradeTasks.userId, task.userId),
+            eq(upgradeTasks.fromLevel, task.fromLevel),
+            eq(upgradeTasks.toLevel, task.toLevel),
+            eq(upgradeTasks.taskIndex, task.taskIndex + 1),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (next && (next.status === TASK_STATUS.PENDING || next.status === UNAVAILABLE_STATUS)) {
+      await this.db
+        .update(upgradeTasks)
+        .set({ status: TASK_STATUS.IN_PROGRESS })
+        .where(eq(upgradeTasks.id, next.id));
+      this.logger.log(`Unlocked next task: taskId=${next.id}, index=${next.taskIndex}`);
     }
   }
 
@@ -471,10 +978,30 @@ export class UpgradeService {
       updateData.sellerStatus = 'approved';
     }
 
+    // 升级四星：直接成为正式四星（收自己的钱）；升级满7天且累计收入超900元后由定时任务启动考核
+    if (toLevel === LEVELS.LEVEL_4) {
+      updateData.fourStarAt = new Date();
+      updateData.assessmentStatus = 'none';
+    }
+
     await this.db
       .update(users)
       .set(updateData)
       .where(eq(users.id, userId));
+
+    // 升级到4级时，将用户滑落进入团队树（注册时不占位置，完成4级任务后才进入）
+    if (toLevel === LEVELS.LEVEL_4) {
+      const userRow = await this.db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (userRow.length > 0 && userRow[0].inviterId) {
+        await this.usersService.assignUserToTeamTree(userId, userRow[0].inviterId);
+        // 成为有效直推：此时才给邀请人 direct_invite_count +1
+        // （注册时不再提前 +1，避免 junior 直推虚高）
+        await this.db
+          .update(users)
+          .set({ directInviteCount: sql`${users.directInviteCount} + 1` })
+          .where(eq(users.id, userRow[0].inviterId));
+      }
+    }
 
     this.logger.log(
       `User upgraded: userId=${userId}, ${fromLevel} -> ${toLevel}`,
@@ -497,12 +1024,36 @@ export class UpgradeService {
 
   // ── Internal: task initialization ─────────────────────────────
 
+  /**
+   * 未绑定邀请人账号的强制清理：删除其全部已生成任务与未付款订单，
+   * 保证"先绑定邀请人，绑定前不生成/不进行任何任务"。
+   * 仅删除 pending_payment（用户未付款）订单，不动在途审核单，保证资金安全。
+   */
+  private async clearTasksForUnbound(userId: string): Promise<void> {
+    await this.db.delete(mallOrders).where(
+      and(eq(mallOrders.userId, userId), eq(mallOrders.status, 'pending_payment')),
+    );
+    await this.db.delete(consultOrders).where(
+      and(eq(consultOrders.studentId, userId), eq(consultOrders.status, 'pending_payment')),
+    );
+    await this.db.delete(upgradeTasks).where(eq(upgradeTasks.userId, userId));
+  }
+
   private async ensureTasks(
     userId: string,
     fromLevel: string,
     toLevel: string,
     defs: TaskDefinition[],
   ): Promise<void> {
+    const gateUser: UserSelect | undefined = (
+      await this.db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+    )[0];
+    if (!gateUser?.isInvited) return;
+
     const existing: UpgradeTaskSelect[] = await this.db
       .select()
       .from(upgradeTasks)
@@ -544,8 +1095,8 @@ export class UpgradeService {
       if (existingIndices.has(def.taskIndex)) continue;
 
       let targetId: string | null = null;
-      // First task auto-starts, others start as pending
-      let status: string = def.taskIndex === 0 ? TASK_STATUS.IN_PROGRESS : TASK_STATUS.PENDING;
+      // 并行任务：同一级别所有任务一进来即可同时开始（无目标的咨询任务下方兜底给管理员）
+      let status: string = TASK_STATUS.IN_PROGRESS;
 
       if (def.targetKind === 'mall') {
         targetId = null;
@@ -553,14 +1104,21 @@ export class UpgradeService {
         targetId = user?.inviterId ?? null;
       } else if (def.targetKind.startsWith('ancestor_')) {
         const depth = Number(def.targetKind.slice('ancestor_'.length));
-        targetId = this.getAncestorFromPath(teamRow?.path, depth) ?? null;
+        if (teamRow?.path) {
+          // 本人已进树（位置已锁定）：按真实 path 确定上级收款人
+          targetId = this.getAncestorFromPath(teamRow.path, depth);
+        } else {
+          // 未进树：上级位置尚未锁定，暂不开放（进树后由 placePendingUser 解锁）
+          status = TASK_STATUS.PENDING;
+          targetId = null;
+        }
       }
 
-      // For consult tasks without a target, assign to admin (零号线)
-      // All payments go to admin when no upper-level consultant exists
+      // 已进树但确实到顶无上级：兜底管理员；未进树锁定的任务不兜底
       if (
         def.taskType === TASK_TYPE.CONSULT_SERVICE &&
-        !targetId
+        !targetId &&
+        status === TASK_STATUS.IN_PROGRESS
       ) {
         targetId = '4b51567f-8020-415c-8b5d-1de2f28e141d'; // 管理员零号线ID
       }
@@ -600,6 +1158,21 @@ export class UpgradeService {
     const index = segments.length - level - 1;
     if (index < 0) return null;
     return segments[index] ?? null;
+  }
+
+  /**
+   * 待位阶段（本人尚未进树）推算团队树 ancestor：
+   *  depth1（直接上级）= 直推人本人；
+   *  depth k(k>=2) = 直推人 path 的第 k-1 级上级。
+   * 与 placePendingUser 进树后的真实 path 校正口径一致。
+   */
+  private getPendingAncestor(
+    inviterPath: string | undefined,
+    inviterId: string,
+    depth: number,
+  ): string | null {
+    if (depth <= 1) return inviterId ?? null;
+    return this.getAncestorFromPath(inviterPath, depth - 1);
   }
 
   // ── Public helper: get ancestor (used by other modules) ───────

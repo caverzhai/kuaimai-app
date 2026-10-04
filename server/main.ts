@@ -1,4 +1,4 @@
-import { NestFactory } from '@nestjs/core';
+﻿import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import * as fs from 'fs';
@@ -55,6 +55,8 @@ async function initDatabase() {
       await sql.unsafe(`
         ALTER TABLE consult_orders ADD COLUMN IF NOT EXISTS task_id VARCHAR(100);
         ALTER TABLE consult_orders ADD COLUMN IF NOT EXISTS auto_confirm_deadline TIMESTAMP(3);
+        ALTER TABLE consult_orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+        ALTER TABLE consult_orders ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP(3);
       `);
 
       // mall_orders 表添加 auto_delivery_deadline 字段（自动收货）
@@ -65,7 +67,27 @@ async function initDatabase() {
       // chat_room_members 表添加 last_active_at 字段（在线状态判断）
       await sql.unsafe(`
         ALTER TABLE chat_room_members ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP;
-        CREATE INDEX IF NOT EXISTS idx_chat_room_members_last_active ON chat_room_members(last_active_at);
+        CREATE INDEX IF NOT EXISTS idx_room_members_last_active ON chat_room_members(last_active_at);
+      `);
+
+      // team_relations 放位并发安全兜底：
+      // 1) 先规整每个 parent 下 position（按创建时间从 0 编号）
+      await sql.unsafe(`
+        WITH ranked AS (
+          SELECT id,
+                 ROW_NUMBER() OVER (PARTITION BY parent_id ORDER BY _created_at, user_id) - 1 AS np
+          FROM team_relations
+          WHERE parent_id IS NOT NULL
+        )
+        UPDATE team_relations tr SET position = r.np
+        FROM ranked r
+        WHERE tr.id = r.id AND tr.position IS DISTINCT FROM r.np;
+      `);
+      // 2) position 只能 0-2；3) (parent_id, position) 唯一 => 每个上级最多 3 个直接下级
+      await sql.unsafe(`
+        ALTER TABLE team_relations DROP CONSTRAINT IF EXISTS team_relations_position_range;
+        ALTER TABLE team_relations ADD CONSTRAINT team_relations_position_range CHECK (position >= 0 AND position <= 2);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_team_relations_parent_position ON team_relations(parent_id, position);
       `);
 
       // 修复历史乱码数据
@@ -100,7 +122,13 @@ async function bootstrap() {
   });
 
   // 手动配置 body-parser，限制为 2MB（大文件上传走单独的上传接口）
-  app.use(bodyParser.json({ limit: '2mb' }));
+  app.use(bodyParser.json({ limit: '10mb' }));
+
+  // iOS UDID 回传：设备 POST 的是 Apple plist（非 JSON），需以文本方式读取原始 body
+  app.use(
+    '/ios-enroll/register',
+    bodyParser.text({ type: () => true, limit: '2mb' }),
+  );
 
   // 启用 CORS（白名单域名，生产环境收紧）
   const allowedOrigins = [
@@ -116,25 +144,10 @@ async function bootstrap() {
   }
   app.enableCors({
     origin: (origin, callback) => {
-      // 允许无 origin 的请求（如移动端原生请求、curl）
-      if (!origin) return callback(null, true);
-      const o = String(origin).toLowerCase();
-      // 允许 Capacitor 本地容器（http/https/capacitor 各 scheme、localhost 任意端口）
-      const isLocalContainer =
-        allowedOrigins.includes(origin) ||
-        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(o) ||
-        o.startsWith('capacitor://localhost') ||
-        o.startsWith('http://localhost') ||
-        o.startsWith('https://localhost') ||
-        /^https?:\/\/(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(o);
-      if (isLocalContainer) {
-        return callback(null, true);
-      }
-      // 开发环境允许所有
-      if (process.env.NODE_ENV === 'development') {
-        return callback(null, true);
-      }
-      return callback(new Error('不允许的跨域来源'), false);
+      // 移动端 APP 后端：允许所有来源
+      // 前端代码打包在 APP 内，不存在任意网页恶意调用风险；所有 API 均有 JWT 认证保护
+      // 放宽以避免部分手机 WebView 的 origin 格式不一致导致 CORS 被拒、表现为"网络错误"
+      return callback(null, true);
     },
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     exposedHeaders: ['Content-Disposition'],
@@ -177,12 +190,61 @@ async function bootstrap() {
     logger.log(`上传目录已创建: ${uploadsDir}`);
   }
   
+  // APK 下载：文件名带版本号「kuaimai{版本}.apk」（如 kuaimai2.51.0.apk），
+  // 用户手动下载即可分辨版本，不会错下/装错；URL 固定 /download/kuaimai.apk，APP 自动更新不受影响。
+  // 必须在 useStaticAssets(express.static) 之前注册，否则静态中间件会先命中真实文件、不带文件名头
+  app.use('/download/kuaimai.apk', (req: any, res: any, next: any) => {
+    const apkPath = path.join(publicPath, 'download', 'kuaimai.apk');
+    if (!fs.existsSync(apkPath)) return next();
+    // 运行时读取 version.json 的版本号，拼进下载文件名
+    let version = '';
+    try {
+      const vjPath = path.join(publicPath, 'version.json');
+      if (fs.existsSync(vjPath)) {
+        version = JSON.parse(fs.readFileSync(vjPath, 'utf-8')).version || '';
+      }
+    } catch {
+      version = '';
+    }
+    const downloadName = `kuaimai${version}.apk`;
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${downloadName}"`,
+    );
+    // 固定下载 URL，禁止浏览器缓存，避免重复下载到旧包
+    res.setHeader(
+      'Cache-Control',
+      'no-store, no-cache, must-revalidate',
+    );
+    res.sendFile(apkPath);
+  });
+
   // 同时提供所有存在的 public 目录（确保新旧图片都能访问）
   existingPublicPaths.forEach((dir, index) => {
-    app.useStaticAssets(dir, { prefix: '/' });
+    app.useStaticAssets(dir, {
+      prefix: '/',
+      setHeaders: (res: any, filePath: string) => {
+        const norm = filePath.replace(/\\/g, '/');
+        // version.json 强制不缓存：确保所有已安装的老版本APP
+        // 每次启动/切前台检测时都能拿到最新版本信息，不漏更新提示
+        if (norm.endsWith('/version.json')) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+        // APK 安装包同样不缓存：避免浏览器 / DownloadManager 复用同名旧包
+        // （这是"下载安装后仍是旧版、更新死循环"的根因）
+        if (norm.includes('/download/') && norm.endsWith('.apk')) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+      },
+    });
     logger.log(`静态文件服务已启用[${index}]: ${dir}`);
   });
   
+
   logger.log(`主静态文件目录: ${publicPath}`);
   logger.log(`process.cwd(): ${process.cwd()}`);
   logger.log(`__dirname: ${__dirname}`);
@@ -195,6 +257,7 @@ async function bootstrap() {
       // 跳过 API 请求、静态文件请求、下载请求
       if (
         req.path.startsWith('/api') ||
+        req.path.startsWith('/ios-enroll') ||
         req.path.startsWith('/download') ||
         req.path === '/version.json' ||
         req.path.includes('.') // 带扩展名的请求（静态文件）
@@ -227,12 +290,13 @@ async function bootstrap() {
     const consultOrdersService = app.get(ConsultOrdersService);
     setInterval(async () => {
       try {
+        await consultOrdersService.autoCancelExpiredPendingOrdersCron();
         await consultOrdersService.autoConfirmExpiredOrdersCron();
       } catch (e) {
-        logger.error(`咨询订单自动确认定时任务异常: ${e}`);
+        logger.error(`咨询订单自动取消+自动确认定时任务异常: ${e}`);
       }
     }, 60 * 1000); // 每分钟执行一次
-    logger.log('咨询订单自动确认定时任务已启动（每分钟执行）');
+    logger.log('咨询订单定时任务已启动（30分钟未付款自动取消 + 自动确认，每分钟执行）');
   } catch (e) {
     logger.error(`启动咨询订单自动确认定时任务失败: ${e}`);
   }
@@ -254,19 +318,20 @@ async function bootstrap() {
     logger.error(`启动聊天室定时任务失败: ${e}`);
   }
 
-  // 启动定时任务：每分钟自动确认超时的商城订单（20分钟未审核自动确认）+ 自动收货
+  // 启动定时任务：30分钟未付款自动取消 + 20分钟未审核自动确认 + 自动收货
   try {
     const { MallOrdersService } = await import('./modules/mall-orders/mall-orders.service');
     const mallOrdersService = app.get(MallOrdersService);
     setInterval(async () => {
       try {
+        await mallOrdersService.autoCancelExpiredPendingOrdersCron();
         await mallOrdersService.autoConfirmExpiredOrdersCron();
         await mallOrdersService.autoDeliverExpiredOrdersCron();
       } catch (e) {
-        logger.error(`商城订单自动确认+自动收货定时任务异常: ${e}`);
+        logger.error(`商城订单自动取消+自动确认+自动收货定时任务异常: ${e}`);
       }
     }, 60 * 1000); // 每分钟执行一次
-    logger.log('商城订单自动确认+自动收货定时任务已启动（每分钟执行）');
+    logger.log('商城订单定时任务已启动（30分钟未付款自动取消 + 自动确认 + 自动收货，每分钟执行）');
   } catch (e) {
     logger.error(`启动商城订单定时任务失败: ${e}`);
   }
@@ -294,6 +359,22 @@ async function bootstrap() {
     logger.log('商家管理费定时任务已启动（每日0点生成8%推广费，12点超时自动下架）');
   } catch (e) {
     logger.error(`启动商家管理费定时任务失败: ${e}`);
+  }
+
+  // 启动定时任务：四星咨询师60天考核（有效四星人数/代收/返还/淘汰/分身顶替）
+  try {
+    const { UsersService } = await import('./modules/users/users.service');
+    const usersService = app.get(UsersService);
+    setInterval(async () => {
+      try {
+        await usersService.processAssessmentCron();
+      } catch (e) {
+        logger.error(`四星考核定时任务异常: ${e}`);
+      }
+    }, 60 * 1000); // 每分钟执行一次
+    logger.log('四星考核定时任务已启动（60天淘汰+分身顶替，每分钟执行）');
+  } catch (e) {
+    logger.error(`启动四星考核定时任务失败: ${e}`);
   }
 }
 

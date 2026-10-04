@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DRIZZLE_DATABASE } from '../../database/database.module';
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { eq, ne, and, or, count, desc, asc, ilike, sql } from 'drizzle-orm';
-import { users, industries } from '@server/database/schema';
+import { eq, ne, and, or, count, desc, asc, ilike, inArray, sql } from 'drizzle-orm';
+import { users, industries, teamRelations } from '@server/database/schema';
 import type {
   ConsultantInfo,
   ConsultantListQuery,
@@ -18,6 +18,25 @@ export class ConsultantsService {
   constructor(
     @Inject(DRIZZLE_DATABASE) private readonly db: PostgresJsDatabase,
   ) {}
+
+  /** 批量实时有效直推人数 */
+  private async effectiveDirectMap(ids: string[]): Promise<Record<string, number>> {
+    if (ids.length === 0) return {};
+    const rows = await this.db
+      .select({ inviterId: users.inviterId, n: sql<number>`count(*)::int` })
+      .from(users)
+      .innerJoin(teamRelations, eq(teamRelations.userId, users.id))
+      .where(
+        and(
+          inArray(users.inviterId, ids),
+          sql`${users.level} <> 'junior' AND ${users.assessmentStatus} IS DISTINCT FROM 'eliminated'`,
+        ),
+      )
+      .groupBy(users.inviterId);
+    const map: Record<string, number> = {};
+    for (const r of rows) map[r.inviterId] = r.n;
+    return map;
+  }
 
   async getConsultantList(query: ConsultantListQuery): Promise<ConsultantListResponse> {
     const page: number = query.page && query.page > 0 ? query.page : 1;
@@ -87,6 +106,8 @@ export class ConsultantsService {
       serviceStandard: row.serviceStandard ?? undefined,
       directInviteCount: row.directInviteCount,
     }));
+    const edm = await this.effectiveDirectMap(items.map((i) => i.id));
+    for (const it of items) it.directInviteCount = edm[it.id] ?? 0;
 
     return {
       items,
@@ -117,6 +138,7 @@ export class ConsultantsService {
         alipayQrcodeUrl: users.alipayQrcodeUrl,
         companyQrcodeUrl: users.companyQrcodeUrl,
         companyAuditStatus: users.companyAuditStatus,
+        assessmentStatus: users.assessmentStatus,
         directInviteCount: users.directInviteCount,
         createdAt: users.createdAt,
       })
@@ -142,6 +164,31 @@ export class ConsultantsService {
     // 管理员（零号线）例外：始终显示个人收款码
     const isAdmin: boolean = row.id === ADMIN_ID;
 
+    // 四星考核中（collecting）：咨询费收款码替换为平台（管理员）收款码
+    let effectiveWechat = row.wechatQrcodeUrl;
+    let effectiveAlipay = row.alipayQrcodeUrl;
+    let effectiveCompany = row.companyQrcodeUrl;
+    if (row.assessmentStatus === 'collecting') {
+      const adminRows = await this.db
+        .select({
+          wechatQrcodeUrl: users.wechatQrcodeUrl,
+          alipayQrcodeUrl: users.alipayQrcodeUrl,
+          companyQrcodeUrl: users.companyQrcodeUrl,
+        })
+        .from(users)
+        .where(eq(users.id, ADMIN_ID))
+        .limit(1);
+      if (adminRows.length > 0) {
+        const admin = adminRows[0];
+        effectiveWechat = admin.wechatQrcodeUrl ?? admin.companyQrcodeUrl;
+        effectiveAlipay = admin.alipayQrcodeUrl ?? admin.companyQrcodeUrl;
+        effectiveCompany = admin.companyQrcodeUrl ?? admin.wechatQrcodeUrl;
+      }
+      this.logger.log(`四星考核代收，收款码替换为平台码: consultantId=${row.id}`);
+    }
+
+    const edCount = (await this.effectiveDirectMap([id]))[id] ?? 0;
+
     return {
       id: row.id,
       nickname: row.nickname,
@@ -151,16 +198,23 @@ export class ConsultantsService {
       industry: row.industry ?? undefined,
       qualification: row.qualification ?? undefined,
       serviceStandard: row.serviceStandard ?? undefined,
-      directInviteCount: row.directInviteCount,
+      directInviteCount: edCount,
       wechatQrcodeUrl:
-        (!isLevel7OrAbove || isAdmin) ? row.wechatQrcodeUrl ?? undefined : undefined,
+        row.assessmentStatus === 'collecting'
+          ? effectiveWechat ?? undefined
+          : (!isLevel7OrAbove || isAdmin) ? effectiveWechat ?? undefined : undefined,
       alipayQrcodeUrl:
-        (!isLevel7OrAbove || isAdmin) ? row.alipayQrcodeUrl ?? undefined : undefined,
+        row.assessmentStatus === 'collecting'
+          ? effectiveAlipay ?? undefined
+          : (!isLevel7OrAbove || isAdmin) ? effectiveAlipay ?? undefined : undefined,
       companyQrcodeUrl:
-        (isLevel7OrAbove && hasCompanyApproval) || isAdmin
-          ? row.companyQrcodeUrl ?? undefined
-          : undefined,
+        row.assessmentStatus === 'collecting'
+          ? effectiveCompany ?? undefined
+          : (isLevel7OrAbove && hasCompanyApproval) || isAdmin
+            ? effectiveCompany ?? undefined
+            : undefined,
       companyAuditStatus: row.companyAuditStatus ?? undefined,
+      platformCollecting: row.assessmentStatus === 'collecting',
       createdAt: row.createdAt.toISOString(),
     };
   }
