@@ -25,6 +25,10 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // 统一使用 release keystore，避免 debug/release 签名不一致导致无法覆盖升级
+            signingConfig signingConfigs.release
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
