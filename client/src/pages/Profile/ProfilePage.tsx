@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef , memo } from 'react';
-import { useNavigate } from 'react-router-dom';
+﻿import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   User,
   Phone,
@@ -8,6 +8,7 @@ import {
   Award,
   FileText,
   QrCode,
+  Wallet,
   Building2,
   LogOut,
   Edit3,
@@ -21,23 +22,37 @@ import {
   Camera,
   CreditCard,
   MessageCircle,
-  User,
   Users,
+  ChevronDown,
+  Apple,
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useAuth } from '@client/src/contexts/AuthContext';
-import { updateProfile, getRelationTree, recognizeIdCard } from '@client/src/api';
+import { updateProfile, getRelationTree, recognizeIdCard, changePassword } from '@client/src/api';
 import { getCache, setCache } from '@client/src/utils/cache';
+import { PullToRefresh } from '@client/src/components/ui/PullToRefresh';
 import type { UpdateProfileDTO } from '@shared/api.interface';
-import { LEVEL_NAMES } from '@shared/api.interface';
+import { LEVEL_NAMES, LEVEL_LAYERS } from '@shared/api.interface';
 import { Image } from '@client/src/components/ui/image';
 import { FieldRow, ImageFieldRow } from '@client/src/components/ProfileFieldRow';
-import { APP_VERSION, checkUpdate, downloadAndInstall, type VersionInfo } from '@client/src/utils/version';
+import { AssessmentCard } from '@client/src/components/AssessmentCard';
+import { APP_VERSION, checkUpdate, downloadAndInstall, forceDownloadLatest, type VersionInfo } from '@client/src/utils/version';
+import { getErrorMessage } from '@client/src/utils/errorMessage';
+import { isValidNickname, NICKNAME_RULE_HINT } from '@shared/validation';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loading: authLoading, refreshUser, logout, updateUser } = useAuth();
   const [editing, setEditing] = useState(false);
+  // 从注册/任务中心（OnboardingGuide）跳入时，路由 state.autoEdit=true，直接进入资料编辑态，无需再点"编辑资料"
+  const autoEditTried = useRef(false);
+  useEffect(() => {
+    if ((location.state as { autoEdit?: boolean } | null)?.autoEdit && !autoEditTried.current) {
+      autoEditTried.current = true;
+      setEditing(true);
+    }
+  }, [location.state]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -48,6 +63,7 @@ const ProfilePage = () => {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrMessage, setOcrMessage] = useState('');
+  const [ocrOk, setOcrOk] = useState(true);
   // 关系树数据 - 使用lazy initial state，立即从缓存显示
   const [relationTree, setRelationTree] = useState<any>(() => {
     try {
@@ -65,6 +81,8 @@ const ProfilePage = () => {
     return null;
   });
   const [relationTreeLoading, setRelationTreeLoading] = useState(false);
+  const [idCardExpanded, setIdCardExpanded] = useState(true);
+  const [relationTreeExpanded, setRelationTreeExpanded] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // 头像上传处理
@@ -167,8 +185,7 @@ const ProfilePage = () => {
       }
     } catch (err) {
       console.error('[AvatarUpload] 头像上传失败', err);
-      const errorMsg = err instanceof Error ? err.message : '未知错误';
-      setError(`头像上传失败: ${errorMsg}`);
+      setError(getErrorMessage(err, '上传头像'));
     } finally {
       setUploadingAvatar(false);
       if (avatarInputRef.current) {
@@ -190,9 +207,80 @@ const ProfilePage = () => {
         setTimeout(() => setSuccess(''), 3000);
       }
     } catch (err) {
-      setError('检查更新失败，请稍后重试');
+      setError(getErrorMessage(err, '检查更新'));
     } finally {
       setCheckingUpdate(false);
+    }
+  };
+
+  // 固定位置"下载最新版·覆盖安装"：不比较版本，直接下载最新 APK 并唤起覆盖安装
+  const [forceDownloading, setForceDownloading] = useState(false);
+
+  // 修改密码弹窗
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pwdOld, setPwdOld] = useState('');
+  const [pwdNew, setPwdNew] = useState('');
+  const [pwdConfirm, setPwdConfirm] = useState('');
+  const [changingPwd, setChangingPwd] = useState(false);
+  const [pwdModalError, setPwdModalError] = useState('');
+
+  const resetPasswordForm = () => {
+    setPwdOld('');
+    setPwdNew('');
+    setPwdConfirm('');
+    setPwdModalError('');
+  };
+
+  const handleChangePassword = async () => {
+    setPwdModalError('');
+    const oldPwd = pwdOld;
+    const newPwd = pwdNew.trim();
+    if (!oldPwd || !newPwd || !pwdConfirm.trim()) {
+      setPwdModalError('请填写完整：旧密码、新密码、确认新密码');
+      return;
+    }
+    if (newPwd.length < 6) {
+      setPwdModalError('新密码长度至少6位');
+      return;
+    }
+    if (newPwd !== pwdConfirm.trim()) {
+      setPwdModalError('两次输入的新密码不一致，请重新确认');
+      return;
+    }
+    if (newPwd === oldPwd || newPwd === oldPwd.trim()) {
+      setPwdModalError('新密码不能与旧密码相同，请设置不同的新密码');
+      return;
+    }
+    setChangingPwd(true);
+    try {
+      await changePassword(oldPwd, newPwd);
+      setShowPasswordModal(false);
+      resetPasswordForm();
+      setSuccess('密码修改成功，下次登录请使用新密码');
+      setTimeout(() => setSuccess(''), 4000);
+    } catch (err) {
+      setPwdModalError(getErrorMessage(err, '修改密码'));
+    } finally {
+      setChangingPwd(false);
+    }
+  };
+
+  const handleForceDownload = async () => {
+    setForceDownloading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const ok = await forceDownloadLatest();
+      if (ok) {
+        setSuccess('已开始下载最新版，下载完成后请点击安装包覆盖安装（无需卸载旧版）');
+        setTimeout(() => setSuccess(''), 5000);
+      } else {
+        setError('下载未能启动，请检查网络后重试；若仍失败，请用浏览器访问下载链接手动下载');
+      }
+    } catch (err) {
+      setError(getErrorMessage(err, '下载最新版'));
+    } finally {
+      setForceDownloading(false);
     }
   };
 
@@ -241,35 +329,39 @@ const ProfilePage = () => {
     }
   }, [user, editing]);
 
-  // 获取关系树数据
+  // 获取关系树数据（silent=true 时不显示loading、不打断旧内容）
+  const fetchRelationTree = useCallback(async (silent = false) => {
+    if (!user) return;
+    if (!silent) setRelationTreeLoading(true);
+    try {
+      const data = await getRelationTree();
+      setRelationTree(data);
+      setCache(`relation_tree_${user.id}`, data);
+    } catch (err) {
+      logger.error('获取关系树失败', err);
+    } finally {
+      setRelationTreeLoading(false);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
-    const cacheKey = `relation_tree_${user.id}`;
-    // 先从缓存读取，立即显示（即使缓存过期也先显示，后台再更新）
-    const cached = getCache(cacheKey, true);
+    // 缓存优先：有旧内容直接显示、不自动请求（不打断）；无缓存首次才请求
+    const cached = getCache(`relation_tree_${user.id}`, true);
     if (cached) {
       setRelationTree(cached);
+    } else {
+      fetchRelationTree();
     }
-    // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
-    const fetchRelationTree = async () => {
-      setRelationTreeLoading(true);
-      try {
-        const data = await getRelationTree();
-        setRelationTree(data);
-        // 写入缓存
-        setCache(cacheKey, data);
-      } catch (err) {
-        logger.error('获取关系树失败', err);
-      } finally {
-        setRelationTreeLoading(false);
-      }
-    };
-    fetchRelationTree();
-  }, [user]);
+  }, [user, fetchRelationTree]);
 
   const handleSave = async () => {
     setError('');
     setSuccess('');
+    if (form.nickname !== undefined && form.nickname.trim() && !isValidNickname(form.nickname.trim())) {
+      setError(NICKNAME_RULE_HINT);
+      return;
+    }
     setLoading(true);
     try {
       // 保存资料，API会返回更新后的完整用户信息
@@ -286,12 +378,7 @@ const ProfilePage = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: unknown) {
       logger.error('更新资料失败', err);
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response
-              ?.data?.message || '更新失败，请稍后重试'
-          : '更新失败，请稍后重试';
-      setError(msg);
+      setError(getErrorMessage(err, '保存个人资料'));
     } finally {
       setLoading(false);
     }
@@ -311,38 +398,15 @@ const ProfilePage = () => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  // 身份证正面上传后自动OCR识别
+  // 身份证正面上传：仅保存照片，不再联网OCR识别
   const handleIdCardFrontChange = (value: string) => {
-    setForm((prev) => ({ ...prev, idCardFrontUrl: value }));
     if (value && value.startsWith('http')) {
-      // 上传成功后自动调用OCR识别
-      setOcrLoading(true);
-      setOcrMessage('正在识别身份证信息...');
-      recognizeIdCard(value, 'face')
-        .then((result: any) => {
-          if (result.success && result.data) {
-            const { idNumber, name, gender, address } = result.data;
-            setForm((prev) => ({
-              ...prev,
-              idCardNumber: idNumber || prev.idCardNumber,
-              realName: name || prev.realName,
-              gender: gender || prev.gender,
-              address: address || prev.address,
-            }));
-            setOcrMessage('身份证识别成功，已自动填充信息');
-            setTimeout(() => setOcrMessage(''), 3000);
-          } else {
-            setOcrMessage('识别失败，请手动输入身份证号');
-            setTimeout(() => setOcrMessage(''), 3000);
-          }
-        })
-        .catch(() => {
-          setOcrMessage('识别失败，请手动输入身份证号');
-          setTimeout(() => setOcrMessage(''), 3000);
-        })
-        .finally(() => {
-          setOcrLoading(false);
-        });
+      setForm((prev) => ({ ...prev, idCardFrontUrl: value }));
+      setOcrOk(true);
+      setOcrMessage('照片上传成功');
+      setTimeout(() => setOcrMessage(''), 2000);
+    } else {
+      setForm((prev) => ({ ...prev, idCardFrontUrl: value }));
     }
   };
 
@@ -370,7 +434,8 @@ const ProfilePage = () => {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <PullToRefresh onRefresh={() => fetchRelationTree(true)}>
+    <div className={`max-w-3xl mx-auto space-y-6 ${editing ? 'pb-32' : ''}`}>
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">个人中心</h1>
         <button
@@ -473,6 +538,8 @@ const ProfilePage = () => {
           </div>
         </div>
       </div>
+
+      <AssessmentCard />
 
       <section className="bg-white rounded-2xl shadow-sm p-6">
         <h3 className="text-base font-semibold text-gray-900 mb-2 flex items-center gap-2">
@@ -591,11 +658,15 @@ const ProfilePage = () => {
 
       {/* 实名认证 section - 上传身份证后自动填充所有信息 */}
       <section className="bg-white rounded-2xl p-4 shadow-sm">
-        <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <CreditCard className="h-5 w-5 text-orange-500" />
-          实名认证 <span className="text-red-500 text-xs">*必传</span>
-        </h3>
+        <button onClick={() => setIdCardExpanded(!idCardExpanded)} className="w-full flex items-center justify-between mb-2">
+          <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-orange-500" />
+            实名认证 <span className="text-red-500 text-xs">*必传</span>
+          </h3>
+          <ChevronDown size={20} className={`text-gray-400 transition-transform duration-200 ${idCardExpanded ? "rotate-180" : ""}`} />
+        </button>
 
+        <div className={idCardExpanded ? "" : "hidden"}>
         {/* 身份证上传 - 放在最前面，上传后自动填充 */}
         <ImageFieldRow
           icon={CreditCard}
@@ -613,7 +684,7 @@ const ProfilePage = () => {
           </div>
         )}
         {!ocrLoading && ocrMessage && (
-          <div className="text-sm text-green-600 mt-2 mb-3">{ocrMessage}</div>
+          <div className={`text-sm mt-2 mb-3 ${ocrOk ? 'text-green-600' : 'text-red-600'}`}>{ocrMessage}</div>
         )}
 
         {/* 上传提示 */}
@@ -731,14 +802,19 @@ const ProfilePage = () => {
         <p className="text-xs text-gray-400 mt-2">
           身份证信息仅用于平台实名认证，不会公开显示，请放心上传
         </p>
+        </div>
       </section>
 
       {/* 关系树 */}
       <section className="bg-white rounded-2xl shadow-sm p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Users size={18} className="text-orange-500" />
-          我的关系树
-        </h3>
+        <button onClick={() => setRelationTreeExpanded(!relationTreeExpanded)} className="w-full flex items-center justify-between mb-2">
+          <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <Users size={18} className="text-orange-500" />
+            我的关系树
+          </h3>
+          <ChevronDown size={20} className={`text-gray-400 transition-transform duration-200 ${relationTreeExpanded ? "rotate-180" : ""}`} />
+        </button>
+        <div className={relationTreeExpanded ? "" : "hidden"}>
         {relationTreeLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 size={20} className="animate-spin text-orange-500" />
@@ -792,77 +868,87 @@ const ProfilePage = () => {
             <div>
               <p className="text-xs font-medium text-gray-400 mb-2 uppercase">下级关系</p>
               <div className="space-y-2">
-                {/* 直接下一代咨询师 */}
-                <div className="p-3 bg-teal-50 rounded-xl">
+                {/* 直推区待定（已邀请但未完成4级任务，未进入团队树） */}
+                <div className="p-3 bg-amber-50 rounded-xl">
                   <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-teal-200 flex items-center justify-center text-teal-700 font-bold text-xs flex-shrink-0">
-                      下1
+                    <div className="w-8 h-8 rounded-full bg-amber-200 flex items-center justify-center text-amber-700 font-bold text-xs flex-shrink-0">
+                      待
                     </div>
-                    <p className="text-xs text-gray-500">我的直接下一代咨询师（{relationTree.directChildren?.length || 0}人）</p>
+                    <p className="text-xs text-gray-500">直推区待定（{relationTree.pendingDirectInvites?.length || 0}人，完成4级任务后自动进入团队树）</p>
                   </div>
-                  {relationTree.directChildren && relationTree.directChildren.length > 0 ? (
+                  {relationTree.pendingDirectInvites && relationTree.pendingDirectInvites.length > 0 ? (
                     <div className="space-y-1.5 ml-10">
-                      {relationTree.directChildren.map((child: any) => (
+                      {relationTree.pendingDirectInvites.map((child: any) => (
                         <div key={child.id} className="flex items-center gap-2">
                           <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
-                          <span className="text-xs px-1.5 py-0.5 bg-teal-100 text-teal-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                          <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-600 rounded">待升级</span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-400 ml-10">无</p>
+                    <p className="text-sm text-gray-400 ml-10">暂无待定用户</p>
                   )}
                 </div>
 
-                {/* 下二代咨询师 */}
-                <div className="p-3 bg-green-50 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xs flex-shrink-0">
-                      下2
-                    </div>
-                    <p className="text-xs text-gray-500">我的下二代咨询师（{relationTree.secondGenerationChildren?.length || 0}人）</p>
-                  </div>
-                  {relationTree.secondGenerationChildren && relationTree.secondGenerationChildren.length > 0 ? (
-                    <div className="space-y-1.5 ml-10">
-                      {relationTree.secondGenerationChildren.map((child: any) => (
-                        <div key={child.id} className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
-                          <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                {/* 下级代（1-9代：1-5代显示姓名，6-9代只显示人数） */}
+                {(() => {
+                  const gens = relationTree.descendantGenerations && relationTree.descendantGenerations.length > 0
+                    ? relationTree.descendantGenerations
+                    : [
+                        { generation: 1, count: relationTree.directChildren?.length || 0, users: relationTree.directChildren || [] },
+                        { generation: 2, count: relationTree.secondGenerationChildren?.length || 0, users: relationTree.secondGenerationChildren || [] },
+                        { generation: 3, count: relationTree.thirdGenerationChildren?.length || 0, users: relationTree.thirdGenerationChildren || [] },
+                      ];
+                  const colorSets = [
+                    { bg: 'bg-teal-50', badge: 'bg-teal-200 text-teal-700', tag: 'bg-teal-100 text-teal-600' },
+                    { bg: 'bg-green-50', badge: 'bg-green-200 text-green-700', tag: 'bg-green-100 text-green-600' },
+                    { bg: 'bg-purple-50', badge: 'bg-purple-200 text-purple-700', tag: 'bg-purple-100 text-purple-600' },
+                    { bg: 'bg-indigo-50', badge: 'bg-indigo-200 text-indigo-700', tag: 'bg-indigo-100 text-indigo-600' },
+                    { bg: 'bg-pink-50', badge: 'bg-pink-200 text-pink-700', tag: 'bg-pink-100 text-pink-600' },
+                    { bg: 'bg-orange-50', badge: 'bg-orange-200 text-orange-700', tag: 'bg-orange-100 text-orange-600' },
+                    { bg: 'bg-cyan-50', badge: 'bg-cyan-200 text-cyan-700', tag: 'bg-cyan-100 text-cyan-600' },
+                    { bg: 'bg-rose-50', badge: 'bg-rose-200 text-rose-700', tag: 'bg-rose-100 text-rose-600' },
+                    { bg: 'bg-lime-50', badge: 'bg-lime-200 text-lime-700', tag: 'bg-lime-100 text-lime-600' },
+                  ];
+                  const genLabels = ['直接下一代', '下二代', '下三代', '下四代', '下五代', '下六代', '下七代', '下八代', '下九代', '下十代', '下十一代', '下十二代', '下十三代', '下十四代', '下十五代'];
+                  return gens.filter((g: any) => g.count > 0 && g.generation <= 9).map((g: any) => {
+                    const c = colorSets[(g.generation - 1) % colorSets.length];
+                    const showNames = g.generation <= 5;
+                    return (
+                      <div key={g.generation} className={`p-3 ${c.bg} rounded-xl`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className={`w-8 h-8 rounded-full ${c.badge} flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                            下{g.generation}
+                          </div>
+                          <p className="text-xs text-gray-500">我的{genLabels[g.generation - 1]}咨询师（{g.count}人）</p>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-400 ml-10">无</p>
-                  )}
-                </div>
-
-                {/* 下三代咨询师 */}
-                <div className="p-3 bg-purple-50 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-full bg-purple-200 flex items-center justify-center text-purple-700 font-bold text-xs flex-shrink-0">
-                      下3
-                    </div>
-                    <p className="text-xs text-gray-500">我的下三代咨询师（{relationTree.thirdGenerationChildren?.length || 0}人）</p>
-                  </div>
-                  {relationTree.thirdGenerationChildren && relationTree.thirdGenerationChildren.length > 0 ? (
-                    <div className="space-y-1.5 ml-10">
-                      {relationTree.thirdGenerationChildren.map((child: any) => (
-                        <div key={child.id} className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
-                          <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded">{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-400 ml-10">无</p>
-                  )}
-                </div>
+                        {showNames ? (
+                          g.users.length > 0 ? (
+                            <div className="space-y-1.5 ml-10">
+                              {g.users.map((child: any) => (
+                                <div key={child.id} className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-gray-900 truncate">{child.nickname}</p>
+                                  <span className={`text-xs px-1.5 py-0.5 ${c.tag} rounded`}>{LEVEL_NAMES[child.level as keyof typeof LEVEL_NAMES] || child.level}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-400 ml-10">无</p>
+                          )
+                        ) : (
+                          <p className="text-sm text-gray-400 ml-10">共 {g.count} 人（仅显示人数）</p>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
         ) : (
           <p className="text-sm text-gray-400 text-center py-4">暂无关系树数据</p>
         )}
+        </div>
       </section>
 
       {/* 收款码 section */}
@@ -958,6 +1044,35 @@ const ProfilePage = () => {
         我的邀请码（分享给好友）
       </button>
 
+      {/* 我的资金入口 */}
+      <button
+        onClick={() => navigate('/finance')}
+        className="w-full py-3 bg-white border border-orange-100 text-orange-500 font-medium rounded-2xl shadow-sm hover:bg-orange-50 transition-colors inline-flex items-center justify-center gap-2 mb-3"
+      >
+        <Wallet size={18} />
+        我的资金（收入与流失明细）
+      </button>
+
+      {/* 修改密码入口 */}
+      <button
+        onClick={() => { resetPasswordForm(); setShowPasswordModal(true); }}
+        className="w-full py-3 bg-white border border-orange-100 text-orange-500 font-medium rounded-2xl shadow-sm hover:bg-orange-50 transition-colors inline-flex items-center justify-center gap-2 mb-3"
+      >
+        <Settings size={18} />
+        修改密码
+      </button>
+
+      {/* 苹果手机 App 独立安装申请（4级及以上） */}
+      {LEVEL_LAYERS[user.level] >= 4 && (
+        <button
+          onClick={() => navigate('/ios-install')}
+          className="w-full py-3 bg-white border border-orange-100 text-orange-500 font-medium rounded-2xl shadow-sm hover:bg-orange-50 transition-colors inline-flex items-center justify-center gap-2 mb-3"
+        >
+          <Apple size={18} />
+          苹果手机 App 独立安装申请
+        </button>
+      )}
+
       <button
         onClick={handleLogout}
         className="w-full py-3 bg-white border border-red-100 text-red-500 font-medium rounded-2xl shadow-sm hover:bg-red-50 transition-colors inline-flex items-center justify-center gap-2"
@@ -992,7 +1107,38 @@ const ProfilePage = () => {
             )}
           </button>
         </div>
+
+        {/* 固定位置：下载最新版·覆盖安装（点击即下载最新版、直接覆盖安装，不依赖更新通知） */}
+        <button
+          onClick={handleForceDownload}
+          disabled={forceDownloading}
+          className="mt-4 w-full py-3 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 disabled:opacity-60 text-white font-semibold rounded-xl transition-all inline-flex items-center justify-center gap-2 shadow-sm"
+        >
+          {forceDownloading ? (
+            <>
+              <Loader2 size={18} className="animate-spin" />
+              正在准备下载…
+            </>
+          ) : (
+            <>
+              <Download size={18} />
+              下载最新版 · 覆盖安装
+            </>
+          )}
+        </button>
+        <p className="mt-2 text-xs text-gray-400 text-center">点击即下载最新版安装包，安装时直接覆盖旧版、无需卸载</p>
       </div>
+
+      {/* H5（浏览器）环境提供 APP 下载入口 */}
+      {isH5 && (
+        <a
+          href="https://backend-production-5d79.up.railway.app/download/kuaimai.apk"
+          className="w-full bg-white rounded-2xl shadow-sm p-4 flex items-center justify-center gap-2 text-orange-500 font-medium border border-orange-100 hover:bg-orange-50 transition-colors"
+        >
+          <Download size={18} />
+          下载 AI快卖 APP（安卓安装包）
+        </a>
+      )}
 
       {showUpdateModal && updateInfo && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1033,7 +1179,127 @@ const ProfilePage = () => {
           </div>
         </div>
       )}
+
+      {/* 修改密码弹窗 */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">修改密码</h3>
+              <button
+                onClick={() => { setShowPasswordModal(false); resetPasswordForm(); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {pwdModalError && (
+              <div className="p-2.5 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 mb-3">
+                <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600">{pwdModalError}</p>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">旧密码</p>
+                <input
+                  type="password"
+                  value={pwdOld}
+                  onChange={(e) => setPwdOld(e.target.value)}
+                  placeholder="请输入当前使用的旧密码"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">新密码（至少6位）</p>
+                <input
+                  type="password"
+                  value={pwdNew}
+                  onChange={(e) => setPwdNew(e.target.value)}
+                  placeholder="请输入新密码，至少6位"
+                  maxLength={32}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">确认新密码</p>
+                <input
+                  type="password"
+                  value={pwdConfirm}
+                  onChange={(e) => setPwdConfirm(e.target.value)}
+                  placeholder="请再次输入新密码"
+                  maxLength={32}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => { setShowPasswordModal(false); resetPasswordForm(); }}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-xl transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleChangePassword}
+                disabled={changingPwd}
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-sm font-medium rounded-xl transition-colors inline-flex items-center justify-center gap-1.5"
+              >
+                {changingPwd ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    提交中
+                  </>
+                ) : (
+                  '确认修改'
+                )}
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs text-gray-400 text-center">若忘记旧密码无法填写，请联系管理员在后台重置密码</p>
+          </div>
+        </div>
+      )}
+
+      {/* 悬浮固定保存栏：编辑态常驻底部（APP 内位于 dock 上方），无需往上拉即可保存 */}
+      {editing && (
+        <div
+          className="fixed left-0 right-0 z-40 px-4"
+          style={{ bottom: isH5 ? 'calc(env(safe-area-inset-bottom) + 16px)' : 'calc(env(safe-area-inset-bottom) + 78px)' }}
+        >
+          <div className="max-w-3xl mx-auto flex gap-3">
+            <button
+              onClick={() => setEditing(false)}
+              disabled={loading}
+              className="px-6 py-3.5 bg-white border border-gray-200 text-gray-700 font-semibold rounded-2xl shadow-lg disabled:opacity-60"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              className="flex-1 py-3.5 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold rounded-2xl shadow-lg inline-flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={19} className="animate-spin" />
+                  保存中…
+                </>
+              ) : (
+                <>
+                  <Check size={19} />
+                  保存资料
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+    </PullToRefresh>
   );
 };
 

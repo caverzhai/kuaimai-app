@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, ChevronLeft, Loader2, Upload, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Wallet, ChevronLeft, Loader2, Upload, Camera, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { getSellerManagementFees, payManagementFee, getPlatformQrcode } from '@client/src/api';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 export default function SellerFeesPage() {
   const navigate = useNavigate();
@@ -21,7 +23,7 @@ export default function SellerFeesPage() {
       const data = await getSellerManagementFees({ page: 1, pageSize: 50 });
       setFees(data.items || []);
     } catch (e) {
-      toast.error('加载推广费失败');
+      toast.error(getErrorMessage(e, '加载推广费'));
     } finally {
       setLoading(false);
     }
@@ -39,7 +41,7 @@ export default function SellerFeesPage() {
       setMallQrcode(qr);
     } catch (e) {
       setQrError(true);
-      toast.error('加载平台收款码失败，请重试');
+      toast.error(getErrorMessage(e, '加载平台收款码'));
     }
   };
 
@@ -79,7 +81,7 @@ export default function SellerFeesPage() {
       setPayingFee(null);
       loadFees();
     } catch (e) {
-      toast.error('提交失败');
+      toast.error(getErrorMessage(e, '提交支付凭证'));
     } finally {
       setSubmitting(false);
     }
@@ -215,11 +217,19 @@ export default function SellerFeesPage() {
               <p className="text-xs text-gray-400 mt-2">支付时请备注：推广费 {payingFee.feeDate?.slice(0, 10)}</p>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">上传支付凭证截图</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">上传支付凭证截图</label>
+              <p className="text-xs text-red-600 font-medium mb-2">上传假图，立即封号。</p>
               <div className="flex items-center gap-3">
+                {Capacitor.isNativePlatform() && (
+                  <label className="flex-1 h-24 border-2 border-dashed border-orange-400 bg-orange-50 rounded-xl flex flex-col items-center justify-center text-orange-500 cursor-pointer hover:bg-orange-100 transition">
+                    {uploading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Camera className="w-6 h-6 mb-1" />}
+                    <span className="text-xs">拍照上传</span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageUpload} />
+                  </label>
+                )}
                 <label className="flex-1 h-24 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:border-orange-400 hover:text-orange-500 transition">
                   {uploading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Upload className="w-6 h-6 mb-1" />}
-                  <span className="text-xs">{screenshotUrl ? '重新上传' : '点击上传凭证'}</span>
+                  <span className="text-xs">{screenshotUrl ? '重新上传' : '相册选择'}</span>
                   <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                 </label>
                 {screenshotUrl && (

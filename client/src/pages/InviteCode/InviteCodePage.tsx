@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Image } from '@client/src/components/ui/image';
 import { useNavigate } from 'react-router-dom';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 export default function InviteCodePage() {
   const navigate = useNavigate();
@@ -54,7 +55,7 @@ export default function InviteCodePage() {
       setData(result as InviteInfo);
     } catch (err) {
       logger.error('获取邀请信息失败', err);
-      setError('加载失败，请稍后重试');
+      setError(getErrorMessage(err, '加载邀请信息'));
     } finally {
       setLoading(false);
     }

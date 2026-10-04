@@ -12,7 +12,9 @@ import {
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useAuth } from '@client/src/contexts/AuthContext';
 import { supplementInviter } from '@client/src/api';
+import { getErrorMessage } from '@client/src/utils/errorMessage';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ensureCameraPermission } from '@client/src/utils/nativePermission';
 
 const SupplementInviterPage = () => {
   const navigate = useNavigate();
@@ -38,12 +40,7 @@ const SupplementInviterPage = () => {
       setSuccess(true);
     } catch (err: unknown) {
       logger.error('补充邀请人失败', err);
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response
-              ?.data?.message || '补充邀请人失败，请稍后重试'
-          : '补充邀请人失败，请稍后重试';
-      setError(msg);
+      setError(getErrorMessage(err, '补充邀请人'));
     } finally {
       setLoading(false);
     }
@@ -62,6 +59,12 @@ const SupplementInviterPage = () => {
   // 启动摄像头扫码
   const startScanner = async () => {
     try {
+      // 先确保摄像头运行时权限已授予（APP 环境）
+      const cameraOk = await ensureCameraPermission();
+      if (!cameraOk) {
+        setError('摄像头权限被拒绝，请在系统设置中允许 AI快卖 使用摄像头后重试');
+        return;
+      }
       const html5QrCode = new Html5Qrcode('qr-reader-supplement');
       scannerRef.current = html5QrCode;
 

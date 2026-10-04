@@ -7,6 +7,7 @@ import { AppContainer } from './lib/lark-shim.tsx';
 import { ErrorRender } from './lib/lark-shim.tsx';
 
 import RoutesComponent from './app.tsx';
+import { ImagePreviewProvider } from './components/ImageLightbox';
 import './index.css';
 import { createPortal } from 'react-dom';
 import { Toaster } from '@client/src/components/ui/sonner';
@@ -39,8 +40,10 @@ const MainApp = () => {
             />
           )}
         >
-          <RoutesComponent />
-          {createPortal(<Toaster />, document.body)}
+          <ImagePreviewProvider>
+            <RoutesComponent />
+            {createPortal(<Toaster />, document.body)}
+          </ImagePreviewProvider>
         </ErrorBoundary>
       </AppContainer>
     </BrowserRouter>

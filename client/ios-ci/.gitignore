@@ -1,0 +1,9 @@
+# 签名材料与中间产物，严禁提交到仓库
+*.pem
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.b64
+*.txt
+pp-decoded.plist

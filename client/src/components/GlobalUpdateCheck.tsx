@@ -8,32 +8,107 @@ export default function GlobalUpdateCheck() {
   const [tip, setTip] = useState('');
 
   useEffect(() => {
-    // 只在 native APP 环境下检查更新，H5 网页版不检查
-    const isNativeApp =
-      (window as any).Capacitor?.isNativePlatform === true || !!(window as any).AppUpdate;
-    if (!isNativeApp) return;
+    let cancelled = false;
+    let found = false; // 一旦检测到更新即停止自动检查，交给用户处理弹窗
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const intervals: ReturnType<typeof setInterval>[] = [];
+    const later = (fn: () => void, ms: number) => {
+      const t = setTimeout(fn, ms);
+      timers.push(t);
+      return t;
+    };
 
-    // 延迟 2 秒检查，等待原生桥注入完成
-    const timer = setTimeout(async () => {
+    const runCheck = async () => {
+      if (cancelled || found) return;
+      const cap = (window as any).Capacitor;
+      const isNative =
+        (typeof cap?.isNativePlatform === 'function' && cap.isNativePlatform()) ||
+        cap?.isNative === true ||
+        (window.AppUpdate && typeof window.AppUpdate.getCurrentVersion === 'function');
+      if (!isNative) return;
       try {
         const info = await checkUpdate();
-        if (info) {
+        if (info && !cancelled && !found) {
+          found = true;
           setUpdateInfo(info);
           setShowUpdateModal(true);
         }
       } catch (e) {
         console.error('检查更新失败', e);
       }
-    }, 2000);
-    return () => clearTimeout(timer);
+    };
+
+    // 回前台：延迟1.5s检查（等网络/桥就绪），若未发现更新，5.5s再补查一次
+    const handleResume = () => {
+      if (cancelled || found) return;
+      later(runCheck, 1500);
+      later(runCheck, 5500);
+    };
+
+    // 启动即检查（不依赖自定义原生桥；纯 Capacitor 也能检测，下载时系统浏览器兜底）
+    runCheck();
+    later(runCheck, 3000);
+    later(runCheck, 8000);
+    later(runCheck, 20000);
+    later(runCheck, 45000);
+
+    // 原生桥若注入再补查（桥就绪后可走原生 DownloadManager 最佳路径）
+    let pollCount = 0;
+    const pollTimer = setInterval(() => {
+      if (cancelled) {
+        clearInterval(pollTimer);
+        return;
+      }
+      pollCount++;
+      if (window.AppUpdate && typeof window.AppUpdate.getCurrentVersion === 'function') {
+        clearInterval(pollTimer);
+        runCheck();
+        return;
+      }
+      if (pollCount >= 60) clearInterval(pollTimer);
+    }, 500);
+    intervals.push(pollTimer);
+
+    // 常驻轮询：每60秒检查一次（启动桥等待超时也会在桥就绪后于此查到）
+    const residentTimer = setInterval(runCheck, 60000);
+    intervals.push(residentTimer);
+
+    // App 从后台回到前台时重新检测（覆盖多任务切换、进程常驻不杀的场景）
+    let appStateSub: { remove: () => void } | null = null;
+    (async () => {
+      try {
+        const mod = await import('@capacitor/app');
+        if (cancelled) return;
+        appStateSub = await mod.App.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) handleResume();
+        });
+      } catch (e) {
+        console.warn('Capacitor App 插件不可用，使用 visibilitychange 兜底', e);
+      }
+    })();
+
+    // 兜底：页面重新可见时检测
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') handleResume();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    // 收到“版本更新”系统通知时，主动触发一次更新检查并弹窗
+    window.addEventListener('app:force-update-check', runCheck);
+
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      intervals.forEach(clearInterval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('app:force-update-check', runCheck);
+      if (appStateSub && typeof appStateSub.remove === 'function') appStateSub.remove();
+    };
   }, []);
 
   const handleUpdate = () => {
     if (!updateInfo || downloading) return;
     setDownloading(true);
     setTip('正在下载更新，下载完成后会自动弹出安装，请稍候…');
-    // 必须走安卓原生下载安装桥（DownloadManager + 系统安装器），
-    // 不能用 window.location.href，否则 WebView 只会导航到 apk 而无法安装
     const ok = downloadAndInstall(updateInfo);
     if (!ok) {
       setTip('下载启动失败，请稍后在「我的-检查更新」重试，或用浏览器手动下载。');

@@ -12,9 +12,13 @@ import {
   approveRoomApplication,
   rejectRoomApplication,
   createChatRoom,
+  getMeetingList,
+  getPlatformNotice,
 } from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCache, setCache } from '../../utils/cache';
+import { getErrorMessage } from '../../utils/errorMessage';
+import { PullToRefresh } from '@client/src/components/ui/PullToRefresh';
 import {
   MessageCircle,
   Users,
@@ -28,6 +32,8 @@ import {
   Phone,
   FileText,
   Sparkles,
+  Radio,
+  Megaphone,
 } from 'lucide-react';
 
 interface ChatRoom {
@@ -127,6 +133,11 @@ const ChatRoomListPage: React.FC = () => {
   const [createRoomName, setCreateRoomName] = useState('');
   const [createRoomDesc, setCreateRoomDesc] = useState('');
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  // 平台通知栏
+  const [noticeContent, setNoticeContent] = useState('');
+
+  // 1号语音会议室（常驻）
+  const [meetingId, setMeetingId] = useState<string>('');
 
   // 申请表单状态
   const [applyRoomName, setApplyRoomName] = useState('');
@@ -138,6 +149,29 @@ const ChatRoomListPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const isAdmin = user?.phone === '13800000000';
+
+  // 拉取常驻的「1号会议室」
+  useEffect(() => {
+    let alive = true;
+    getMeetingList()
+      .then((data) => {
+        if (!alive) return;
+        const items = data?.items || [];
+        const target = items.find((m: any) => m.name === '1号会议室') || items[0];
+        if (target) setMeetingId(target.id);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // 拉取平台公告（互动中心底部通知栏）
+  useEffect(() => {
+    let alive = true;
+    getPlatformNotice()
+      .then((d: any) => { if (alive) setNoticeContent(d?.content || ''); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const loadData = useCallback(async (showLoading = false) => {
     try {
@@ -162,26 +196,27 @@ const ChatRoomListPage: React.FC = () => {
         });
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || '加载失败');
+      setError(getErrorMessage(err, '加载聊天室列表'));
     } finally {
       setLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
-    // 先从缓存读取数据，立即显示（即使缓存过期也先显示，后台再更新）
+    let hasCacheData = false;
+    // 缓存优先：有旧内容立即显示、不自动请求（不白屏）
     if (user) {
       const cached = getCache<{rooms: ChatRoom[]; friends: Friend[]; applications: RoomApplication[]}>(`chat_room_list_${user.id}`, true);
       if (cached) {
+        hasCacheData = true;
         if (cached.rooms) setRooms(cached.rooms);
         if (cached.friends) setFriends(cached.friends);
         if (cached.applications) setApplications(cached.applications);
         setLoading(false);
       }
     }
-    // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
-    // 后台从服务器更新
-    loadData(true);
+    // 无缓存（首次安装）才全量加载；有缓存靠下拉刷新
+    if (!hasCacheData) loadData(true);
     const interval = setInterval(() => {
       if (!showApplyModal && !showPersonalModal && !showCloseConfirm) {
         loadData(false);
@@ -250,7 +285,7 @@ const ChatRoomListPage: React.FC = () => {
       toast.success('申请提交成功！管理员审核后将自动准时上线');
       loadData();
     } catch (err: any) {
-      const errMsg = err.response?.data?.message || '提交失败，请重试';
+      const errMsg = getErrorMessage(err, '提交聊天室申请');
       setError(errMsg);
       toast.error(errMsg);
     } finally {
@@ -273,7 +308,7 @@ const ChatRoomListPage: React.FC = () => {
       setPersonalRoomName('');
       loadData();
     } catch (err: any) {
-      setError(err.response?.data?.message || '创建失败');
+      setError(getErrorMessage(err, '创建好友聊天室'));
     }
   };
 
@@ -297,7 +332,7 @@ const ChatRoomListPage: React.FC = () => {
       toast.success('聊天室创建成功，已立即上线');
       loadData();
     } catch (err: any) {
-      const msg = err.response?.data?.message || '创建失败，请重试';
+      const msg = getErrorMessage(err, '创建聊天室');
       setError(msg);
       toast.error(msg);
     } finally {
@@ -319,7 +354,7 @@ const ChatRoomListPage: React.FC = () => {
       setShowCloseConfirm(null);
       loadData();
     } catch (err: any) {
-      setError(err.response?.data?.message || '关闭失败');
+      setError(getErrorMessage(err, '关闭聊天室'));
     }
   };
 
@@ -328,7 +363,7 @@ const ChatRoomListPage: React.FC = () => {
       await approveRoomApplication(appId);
       loadData();
     } catch (err: any) {
-      setError(err.response?.data?.message || '操作失败');
+      setError(getErrorMessage(err, '审批聊天室申请'));
     }
   };
 
@@ -337,7 +372,7 @@ const ChatRoomListPage: React.FC = () => {
       await rejectRoomApplication(appId);
       loadData();
     } catch (err: any) {
-      setError(err.response?.data?.message || '操作失败');
+      setError(getErrorMessage(err, '拒绝聊天室申请'));
     }
   };
 
@@ -361,7 +396,8 @@ const ChatRoomListPage: React.FC = () => {
     }
   };
 
-  if (loading) {
+  const hasAnyContent = rooms.length > 0 || friends.length > 0 || applications.length > 0;
+  if (loading && !hasAnyContent) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-gray-500">加载中...</div>
@@ -374,6 +410,7 @@ const ChatRoomListPage: React.FC = () => {
   const pendingApplications = applications.filter((a) => a.status === 'pending');
 
   return (
+    <PullToRefresh onRefresh={() => loadData(false)}>
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* 顶部标题栏 */}
       <div className="bg-white px-4 py-3 flex items-center justify-between border-b sticky top-0 z-10">
@@ -413,6 +450,30 @@ const ChatRoomListPage: React.FC = () => {
       {error && (
         <div className="mx-4 mt-3 p-3 bg-red-50 text-red-600 rounded-lg text-sm">
           {error}
+        </div>
+      )}
+
+      {/* 1号语音会议室（常驻入口） */}
+      {meetingId && (
+        <div className="px-4 pt-4">
+          <div
+            onClick={() => navigate(`/meeting-room/${meetingId}`)}
+            className="relative w-full rounded-2xl overflow-hidden shadow-md active:scale-[0.98] transition-transform cursor-pointer bg-gradient-to-r from-indigo-600 via-purple-600 to-orange-500 p-4 flex items-center gap-3"
+          >
+            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+              <Radio className="w-7 h-7 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-white font-bold text-base flex items-center gap-1.5">
+                1号会议室
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              </div>
+              <p className="text-white/85 text-xs mt-0.5 leading-relaxed">
+                语音会议室 · 一人发言众人收听，举手申请、主持人安排
+              </p>
+            </div>
+            <span className="text-white/90 text-sm font-medium flex-shrink-0">进入 →</span>
+          </div>
         </div>
       )}
 
@@ -607,6 +668,22 @@ const ChatRoomListPage: React.FC = () => {
             >
               点击申请创建聊天室
             </button>
+          </div>
+        )}
+
+        {/* 平台通知栏（管理员编辑；固定高度只显示一部分，区域内上下滑动查看全部） */}
+        {noticeContent && (
+          <div className="mt-4 bg-white rounded-xl p-4 shadow-sm border border-orange-100">
+            <div className="flex items-center gap-2 mb-2">
+              <Megaphone className="w-4 h-4 text-orange-500" />
+              <h3 className="text-sm font-bold text-gray-800">平台通知</h3>
+            </div>
+            <div
+              className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap pr-1 overflow-y-auto overscroll-contain"
+              style={{ height: '260px' }}
+            >
+              {noticeContent}
+            </div>
           </div>
         )}
       </div>
@@ -878,6 +955,7 @@ const ChatRoomListPage: React.FC = () => {
         </div>
       )}
     </div>
+    </PullToRefresh>
   );
 };
 

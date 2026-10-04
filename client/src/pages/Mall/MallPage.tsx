@@ -21,8 +21,16 @@ import type {
 } from '@shared/api.interface';
 import { Image } from '@client/src/components/ui/image';
 import { getCache, setCache } from '../../utils/cache';
+import { getErrorMessage } from '../../utils/errorMessage';
+import { PullToRefresh } from '@client/src/components/ui/PullToRefresh';
 
 const PAGE_SIZE = 12;
+
+// 缓存版本号：升级后旧的本地缓存（可能含已删除商品）自动作废，杜绝幽灵商品
+const CACHE_VER = 'v3';
+function cacheKeyFor(category: string, keyword: string, taskAmount: string | null): string {
+  return `mall_${CACHE_VER}_${category}_${keyword}_${taskAmount || ''}`;
+}
 
 // 固定的商品分类（用户要求）
 const FIXED_CATEGORIES = [
@@ -44,49 +52,43 @@ function MallPage() {
   const [activeCategory, setActiveCategory] = useState<string>('');
   const [keyword, setKeyword] = useState('');
   const [searchInput, setSearchInput] = useState('');
-  // 关键：使用lazy initial state，组件第一次渲染时就从缓存读取数据，立即显示
+  // 关键：lazy initial state，首次渲染即从缓存读取、立即显示（不白屏）
   const [products, setProducts] = useState<ProductInfo[]>(() => {
-    try {
-      const cacheKey = `mall_products___${taskAmount || ''}`; // activeCategory='', keyword=''
-      const cached = getCache<{ items: ProductInfo[]; total: number }>(cacheKey, true);
-      if (cached && cached.items && cached.items.length > 0) {
-        return cached.items;
-      }
-    } catch (e) {
-      // 忽略缓存读取错误
-    }
-    return [];
+    const cached = getCache<{ items: ProductInfo[]; total: number }>(
+      cacheKeyFor('', '', taskAmount), true);
+    return cached && cached.items && cached.items.length > 0 ? cached.items : [];
   });
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState<number>(() => {
-    try {
-      const cacheKey = `mall_products___${taskAmount || ''}`; // activeCategory='', keyword=''
-      const cached = getCache<{ items: ProductInfo[]; total: number }>(cacheKey, true);
-      if (cached) {
-        return cached.total || 0;
-      }
-    } catch (e) {
-      // 忽略缓存读取错误
-    }
-    return 0;
+    const cached = getCache<{ items: ProductInfo[]; total: number }>(
+      cacheKeyFor('', '', taskAmount), true);
+    return cached ? cached.total || 0 : 0;
   });
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
+  const mountedRef = useRef(false);
   const prevFilterRef = useRef('');
 
   useEffect(() => {
     const filterKey = activeCategory + '|' + keyword + '|' + (taskAmount || '');
-    const filterChanged = filterKey !== prevFilterRef.current;
+    const isFirstMount = !mountedRef.current;
+    mountedRef.current = true;
     prevFilterRef.current = filterKey;
     setPage(1);
-    // 首次加载或筛选条件变化时显示loading；切换tab回来只静默更新，不闪loading
-    if (filterChanged || products.length === 0) {
-      fetchProducts(1, true);
-    } else {
-      fetchProducts(1, true, true); // 静默更新，不显示loading
+    // stale-while-revalidate：先显示缓存（不白屏），随后总是静默拉取最新数据并替换，
+    // 已删除 / 改价的商品会被自动纠正，不会永久残留（修复幽灵商品）
+    const ck = cacheKeyFor(activeCategory, keyword, taskAmount);
+    const cached = getCache<{ items: ProductInfo[]; total: number }>(ck, true);
+    const hasCached = !!(cached && Array.isArray(cached.items) && cached.items.length > 0);
+    if (hasCached && cached) {
+      setProducts(cached.items);
+      setTotal(cached.total || 0);
     }
+    // 首次且无缓存才显示 loading；其余情况后台静默刷新
+    const silent = hasCached || !isFirstMount;
+    fetchProducts(1, true, silent);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCategory, keyword, taskAmount]);
 
@@ -115,28 +117,23 @@ function MallPage() {
       };
       if (activeCategory) params.category = activeCategory;
       if (keyword) params.keyword = keyword;
+      // 升级任务模式：金额过滤交后端 SQL，保证跨页聚合、total 准确
+      if (taskAmount) params.price = taskAmount;
       const data = (await getProductList(params)) as ProductListResponse;
-      // 防御性处理：确保items是数组
+      // 防御性处理：确保 items 是数组
       const items = Array.isArray(data?.items) ? data.items : [];
-      // 升级任务模式：只显示指定金额的商品
-      let filteredItems = items;
-      if (taskAmount) {
-        filteredItems = items.filter((p: ProductInfo) => {
-          const price = parseFloat(p.price);
-          return Math.abs(price - parseFloat(taskAmount)) < 0.01;
-        });
-      }
-      setProducts((prev) => (replace ? filteredItems : [...prev, ...filteredItems]));
-      setTotal(taskAmount ? filteredItems.length : (data?.total ?? 0));
+      setProducts((prev) => (replace ? items : [...prev, ...items]));
+      setTotal(data?.total ?? 0);
       setPage(p);
       // 写入缓存（只缓存第一页）
       if (replace && p === 1) {
-        const cacheKey = `mall_products_${activeCategory}_${keyword}_${taskAmount || ''}`;
-        setCache(cacheKey, { items: filteredItems, total: taskAmount ? filteredItems.length : (data?.total ?? 0) });
+        setCache(cacheKeyFor(activeCategory, keyword, taskAmount), {
+          items, total: data?.total ?? 0,
+        });
       }
     } catch (err) {
       logger.error('加载商品失败', err);
-      setError('加载失败，请稍后重试');
+      setError(getErrorMessage(err, '加载商城商品'));
     } finally {
       if (!silent) { setLoading(false); setLoadingMore(false); }
     }
@@ -204,6 +201,7 @@ function MallPage() {
         </div>
       )}
 
+      <PullToRefresh onRefresh={() => fetchProducts(1, true, true)}>
       <div className="max-w-7xl mx-auto px-4 py-4">
         {/* 移动端分类tab */}
         <div className="md:hidden mb-4 overflow-x-auto -mx-4 px-4">
@@ -271,7 +269,7 @@ function MallPage() {
 
           {/* 右侧商品列表 */}
           <main className="flex-1 min-w-0">
-            {loading && (
+            {loading && products.length === 0 && (
               <div className="flex justify-center py-16">
                 <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
               </div>
@@ -297,7 +295,7 @@ function MallPage() {
               </div>
             )}
 
-            {!loading && !error && products.length > 0 && (
+            {!error && products.length > 0 && (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
                   {products.map((product: ProductInfo) => (
@@ -369,6 +367,7 @@ function MallPage() {
           </main>
         </div>
       </div>
+      </PullToRefresh>
     </div>
   );
 }

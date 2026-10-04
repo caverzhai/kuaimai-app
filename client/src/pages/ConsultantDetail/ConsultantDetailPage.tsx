@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Loader2, ArrowLeft, User, Briefcase, FileCheck,
   ListChecks, QrCode, CreditCard, Upload,
-  CheckCircle2, Info, ChevronDown,
+  CheckCircle2, Info, ChevronDown, AlertTriangle,
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { Image } from '@/components/ui/image';
@@ -26,6 +26,8 @@ import {
   getMyConsultOrders,
 } from '../../api';
 import { uploadImageToServer } from '../../utils/imageUpload';
+import { ImageUploadButtons } from '@client/src/components/ImageUploadButtons';
+import { getErrorMessage } from '../../utils/errorMessage';
 import type { UserInfo, ConsultOrderInfo } from '@shared/api.interface';
 import { LEVEL_NAMES, LEVEL_LAYERS, CONSULT_ORDER_STATUS_NAMES } from '@shared/api.interface';
 
@@ -61,7 +63,7 @@ export default function ConsultantDetailPage() {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 防止重复创建订单的标记
-  const orderCreatedRef = useRef(false);
+  const orderCreatedRef = useRef<string | null>(null);
 
   const [consultant, setConsultant] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,9 +114,16 @@ export default function ConsultantDetailPage() {
         ]);
         setConsultant(data as UserInfo);
 
-        // 检查是否已有该咨询师的待审核订单
+        // 检查是否已有「当前这笔」的待处理订单（防重复）
         const myOrders = (ordersResult as { items: ConsultOrderInfo[] }).items || [];
-        const existingPending = myOrders.find((o) => o.consultantId === id);
+        const existingPending = myOrders.find((o) => {
+          if (o.consultantId !== id) return false;
+          // 升级任务：只拦截同一 taskId 的订单；
+          // 同一咨询师可能同时是相邻任务的收款人（如直推人=上级），不得阻止下一任务
+          if (taskId) return o.taskId === taskId;
+          // 一般咨询（无 taskId）：同咨询师已有待处理订单即拦截
+          return true;
+        });
         if (existingPending) {
           setPendingOrder(existingPending);
           setLoading(false);
@@ -122,10 +131,10 @@ export default function ConsultantDetailPage() {
         }
 
         // 如果有固定金额且没有待审核订单，自动创建订单并打开支付弹窗
-        if (fixedAmount && !orderCreatedRef.current) {
+        if (fixedAmount && user?.isInvited && orderCreatedRef.current !== user?.id) {
           const numAmount = Number(fixedAmount);
           if (numAmount > 0) {
-            orderCreatedRef.current = true;
+            orderCreatedRef.current = user?.id ?? null;
             setCreatingOrder(true);
             try {
               const order = await createConsultOrder({
@@ -137,23 +146,23 @@ export default function ConsultantDetailPage() {
               setCurrentOrder(order as ConsultOrderInfo);
               setPurchaseDialogOpen(true);
             } catch (err) {
-              setOrderError('创建订单失败，请稍后重试');
+              setOrderError(getErrorMessage(err, '创建订单'));
               logger.error('自动创建订单失败', err);
-              orderCreatedRef.current = false;
+              orderCreatedRef.current = null;
             } finally {
               setCreatingOrder(false);
             }
           }
         }
       } catch (err) {
-        setError('加载咨询师详情失败，请稍后重试');
+        setError(getErrorMessage(err, '加载咨询师详情'));
         logger.error('加载咨询师详情失败', err);
       } finally {
         setLoading(false);
       }
     }
     fetchDetail();
-  }, [id, fixedAmount, user]);
+  }, [id, fixedAmount, user?.id]);
 
   const handleBuy = async () => {
     if (!id || !amount) return;
@@ -174,7 +183,7 @@ export default function ConsultantDetailPage() {
       setCurrentOrder(data as ConsultOrderInfo);
       setPurchaseDialogOpen(true);
     } catch (err) {
-      setOrderError('创建订单失败，请稍后重试');
+      setOrderError(getErrorMessage(err, '创建订单'));
       logger.error('创建咨询订单失败', err);
     } finally {
       setCreatingOrder(false);
@@ -185,8 +194,7 @@ export default function ConsultantDetailPage() {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileSelected = async (file: File) => {
     if (!file || !currentOrder) return;
     setUploading(true);
     try {
@@ -205,11 +213,10 @@ export default function ConsultantDetailPage() {
         }
       }, 1500);
     } catch (err) {
-      setOrderError('上传付款截图失败，请稍后重试');
+      setOrderError(getErrorMessage(err, '上传付款截图'));
       logger.error('上传付款截图失败', err);
     } finally {
       setUploading(false);
-      if (e.target) e.target.value = '';
     }
   };
 
@@ -238,6 +245,37 @@ export default function ConsultantDetailPage() {
         </Button>
         <div className="text-center py-20 text-gray-500">
           <p>{error || '咨询师不存在'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 未绑定邀请人：任务金额模式下直接阻断，不展示任何收款码/支付按钮
+  if (fixedAmount && user && user.isInvited === false) {
+    return (
+      <div className="p-4 max-w-2xl mx-auto">
+        <Button
+          variant="ghost"
+          onClick={() => navigate(-1)}
+          className="mb-4 -ml-2 text-gray-600"
+        >
+          <ArrowLeft className="w-4 h-4 mr-1" />
+          返回
+        </Button>
+        <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-8 text-center">
+          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-lg font-bold text-gray-900 mb-2">
+            您还未绑定邀请人，无法下单或开始任务
+          </h2>
+          <p className="text-sm text-gray-500 leading-relaxed mb-6">
+            请先到「任务中心」补充邀请码激活账号后，再进行升级任务付款，未激活前不会显示任何收款码。
+          </p>
+          <Button
+            onClick={() => navigate('/tasks')}
+            className="w-full h-11 bg-orange-500 hover:bg-orange-600 text-white font-medium"
+          >
+            去补充邀请码
+          </Button>
         </div>
       </div>
     );
@@ -399,7 +437,7 @@ export default function ConsultantDetailPage() {
               <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
                 <CheckCircle2 className="w-10 h-10 text-green-500 mx-auto mb-2" />
                 <p className="text-sm font-medium text-green-700">
-                  您已购买该咨询师的服务，当前待审核
+                  {taskId ? '您已购买本任务的服务，当前待审核' : '您已购买该咨询师的服务，当前待审核'}
                 </p>
                 <p className="text-xs text-green-600 mt-1">
                   订单状态：{CONSULT_ORDER_STATUS_NAMES[pendingOrder.status as keyof typeof CONSULT_ORDER_STATUS_NAMES] || pendingOrder.status}
@@ -422,6 +460,10 @@ export default function ConsultantDetailPage() {
                   <p className="text-sm text-orange-600 mb-1">升级任务应付金额</p>
                   <p className="text-3xl font-bold text-orange-600">¥{fixedAmount}</p>
                   <p className="text-xs text-orange-500 mt-2">请扫码支付对应金额，然后上传付款截图</p>
+                </div>
+                <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p className="text-sm font-bold">转账必须备注「咨询费」！不然不予审核！</p>
                 </div>
                 {orderError && !purchaseDialogOpen && (
                   <p className="text-sm text-red-500">{orderError}</p>
@@ -528,6 +570,12 @@ export default function ConsultantDetailPage() {
                 </div>
               </div>
 
+              {/* 转账备注警告 */}
+              <div className="flex items-start gap-2 text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p className="text-sm font-bold">转账必须备注「咨询费」！不然不予审核！</p>
+              </div>
+
               {/* 咨询师收款码 */}
               <div className="text-center">
                 <p className="text-sm text-gray-600 mb-3">咨询师收款码</p>
@@ -566,7 +614,7 @@ export default function ConsultantDetailPage() {
               <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 p-3 rounded-lg">
                 <Info className="w-4 h-4 shrink-0 mt-0.5" />
                 <div>
-                  <p>请备注订单号转账，20分钟内未确认将自动确认收款</p>
+                  <p>请备注「咨询费」转账，否则不予审核；3分钟内未确认将自动确认收款</p>
                   {uploaded && currentOrder?.autoConfirmDeadline && (
                     <p className="font-bold text-orange-600 mt-1">
                       ⏱ {formatCountdown(currentOrder.autoConfirmDeadline)}
@@ -582,29 +630,9 @@ export default function ConsultantDetailPage() {
                       {orderError}
                     </p>
                   )}
-                  <Button
-                    onClick={handleUploadClick}
-                    disabled={uploading}
-                    className="w-full h-11 bg-orange-500 hover:bg-orange-600 text-white"
-                  >
-                    {uploading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        上传中...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-4 h-4 mr-2" />
-                        上传付款截图
-                      </>
-                    )}
-                  </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="hidden"
+                  <ImageUploadButtons
+                    onFileSelected={handleFileSelected}
+                    uploading={uploading}
                   />
                 </>
               ) : (

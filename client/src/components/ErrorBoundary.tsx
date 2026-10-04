@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
               <div>
                 <h2 className="text-xl font-bold text-gray-900">页面出错了</h2>
-                <p className="text-sm text-gray-500">测试阶段，请截图反馈给开发者</p>
+                <p className="text-sm text-gray-500">可点下方「返回首页」继续使用；若反复出现，请重启 APP 或联系客服</p>
               </div>
             </div>
 

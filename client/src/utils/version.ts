@@ -1,6 +1,6 @@
 // APP version config
-export const APP_VERSION = '2.34.16';
-export const APP_VERSION_CODE = 154;
+export const APP_VERSION = '3.3.9';
+export const APP_VERSION_CODE = 339;
 
 // Version check URL (deployed to backend static file)
 export const VERSION_CHECK_URL = 'https://backend-production-5d79.up.railway.app/version.json';
@@ -11,6 +11,7 @@ export interface VersionInfo {
   downloadUrl: string;
   releaseNotes: string;
   forceUpdate: boolean;
+  forceUpdateBelowCode?: number;
 }
 
 // Native APP update interface type declaration
@@ -28,8 +29,9 @@ export function getCurrentVersion(): { versionName: string; versionCode: number 
   try {
     if (window.AppUpdate && typeof window.AppUpdate.getCurrentVersion === 'function') {
       const result = JSON.parse(window.AppUpdate.getCurrentVersion());
-      if (result.versionName && result.versionCode > 0) {
-        return result;
+      const code = Number(result.versionCode);
+      if (result.versionName && Number.isInteger(code) && code > 0) {
+        return { versionName: result.versionName, versionCode: code };
       }
     }
   } catch (error) {
@@ -41,16 +43,26 @@ export function getCurrentVersion(): { versionName: string; versionCode: number 
 // Check update (only in native APP environment, H5 web version does not check)
 export async function checkUpdate(): Promise<VersionInfo | null> {
   // H5 web environment does not check APP update, avoid infinite loop
-  const isNativeApp = (window as any).Capacitor?.isNativePlatform === true || !!window.AppUpdate;
+  const cap = (window as any).Capacitor;
+  const isNativeApp =
+    (typeof cap?.isNativePlatform === 'function' && cap.isNativePlatform()) ||
+    cap?.isNative === true ||
+    !!window.AppUpdate;
   if (!isNativeApp) {
     return null;
   }
   try {
     const currentVersion = getCurrentVersion();
-    const response = await fetch(VERSION_CHECK_URL, { cache: 'no-cache' });
+    const checkUrl =
+      VERSION_CHECK_URL + (VERSION_CHECK_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
+    const response = await fetch(checkUrl, { cache: 'no-store' });
     if (!response.ok) return null;
     const data = (await response.json()) as VersionInfo;
-    if (data.versionCode > currentVersion.versionCode) {
+    const hasUpdate =
+      data.versionCode > currentVersion.versionCode ||
+      (typeof data.forceUpdateBelowCode === 'number' &&
+        currentVersion.versionCode < data.forceUpdateBelowCode);
+    if (hasUpdate) {
       return data;
     }
     return null;
@@ -63,6 +75,13 @@ export async function checkUpdate(): Promise<VersionInfo | null> {
 // Download and install update
 export function downloadAndInstall(versionInfo: VersionInfo): boolean {
   try {
+    // 防缓存：给下载地址追加版本号参数，保证每个新版本的下载 URL 唯一，
+    // 避免浏览器 / DownloadManager 复用同名旧 APK（这是"装完还是旧版"死循环的根因）。
+    versionInfo.downloadUrl =
+      versionInfo.downloadUrl +
+      (versionInfo.downloadUrl.includes('?') ? '&' : '?') +
+      'v=' + versionInfo.versionCode;
+
     // 1) 原生 APP：优先调用 AppUpdateBridge（DownloadManager 下载 + 系统安装器）
     if (window.AppUpdate && typeof window.AppUpdate.downloadAndInstall === 'function') {
       try {
@@ -113,3 +132,17 @@ export function downloadAndInstall(versionInfo: VersionInfo): boolean {
   }
 }
 
+// Force download latest version (bypasses version comparison)
+export async function forceDownloadLatest(): Promise<boolean> {
+  try {
+    const checkUrl =
+      VERSION_CHECK_URL + (VERSION_CHECK_URL.includes('?') ? '&' : '?') + 't=' + Date.now();
+    const response = await fetch(checkUrl, { cache: 'no-store' });
+    if (!response.ok) throw new Error('version.json HTTP ' + response.status);
+    const data = (await response.json()) as VersionInfo;
+    return downloadAndInstall(data);
+  } catch (error) {
+    console.error('forceDownloadLatest failed', error);
+    return false;
+  }
+}

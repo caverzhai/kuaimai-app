@@ -34,6 +34,7 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
   const [uploading, setUploading] = useState(false);
   const [sellers, setSellers] = useState<any[]>([]);
   const [sellerId, setSellerId] = useState((product as any)?.sellerId || '');
+  const [promotionFeeRate, setPromotionFeeRate] = useState((product as any)?.promotionFeeRate || '0.08');
 
   // 加载卖家列表
   useEffect(() => {
@@ -242,6 +243,7 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
         detailImages: uploadedDetailImages,
         status: 'on_sale',
         sellerId: sellerId || null,
+        promotionFeeRate: promotionFeeRate,
       };
 
       if (isEdit && product) {
@@ -398,6 +400,22 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
             {sellers.map((s) => (
               <option key={s.id} value={s.id}>{s.nickname || s.phone}（{s.phone}）</option>
             ))}
+          </select>
+        </div>
+
+        {/* 推广费率 */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            推广费率 <span className="text-xs text-gray-400 ml-2">（卖家每日按此费率向平台缴纳推广费，0% 免缴、商品不下架）</span>
+          </label>
+          <select
+            value={promotionFeeRate}
+            onChange={(e) => setPromotionFeeRate(e.target.value)}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent outline-none bg-white"
+          >
+            <option value="0">0%（免缴推广费，商品不下架）</option>
+            <option value="0.08">8%（默认）</option>
+            <option value="0.20">20%</option>
           </select>
         </div>
 

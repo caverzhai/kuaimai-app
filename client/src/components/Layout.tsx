@@ -7,7 +7,7 @@ import {
 import { getUpgradeCenter, getReceivedConsultOrders } from '../api';
 import { TASK_STATUS, CONSULT_ORDER_STATUS, LEVEL_LAYERS } from '@shared/api.interface';
 import { playNewTaskSound, playReviewSound } from '../utils/notification-sound';
-import { checkUpdate, downloadAndInstall, type VersionInfo } from '../utils/version';
+import { PendingOrderBanner } from './PendingOrderBanner';
 
 const Layout = () => {
   const { user, logout } = useAuth();
@@ -17,9 +17,6 @@ const Layout = () => {
   const [pendingReviewCount, setPendingReviewCount] = useState(0);
   const prevTaskRef = useRef(0);
   const prevReviewRef = useRef(0);
-  const [updateInfo, setUpdateInfo] = useState<VersionInfo | null>(null);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [updating, setUpdating] = useState(false);
 
   const totalPending = pendingTaskCount + pendingReviewCount;
 
@@ -93,29 +90,6 @@ const Layout = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const isNativeApp = (window as any).Capacitor?.isNativePlatform === true || !!window.AppUpdate;
-    if (!isNativeApp) return;
-    const doCheckUpdate = async () => {
-      try {
-        const info = await checkUpdate();
-        if (info) { setUpdateInfo(info); setShowUpdateModal(true); }
-      } catch { /* 静默 */ }
-    };
-    const initTimer = setTimeout(doCheckUpdate, 3000);
-    const intervalTimer = setInterval(doCheckUpdate, 3600000);
-    return () => { clearTimeout(initTimer); clearInterval(intervalTimer); };
-  }, []);
-
-  const handleUpdate = () => {
-    if (!updateInfo || updating) return;
-    setUpdating(true);
-    if (!downloadAndInstall(updateInfo)) {
-      setUpdating(false);
-      alert('更新失败，请稍后重试');
-    }
-  };
-
   const handleLogout = () => { logout(); navigate('/login'); };
 
   const dockItems = [
@@ -174,6 +148,9 @@ const Layout = () => {
       </header>
 
       <main className={'flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-6 relative ' + (hideDock ? '' : 'pb-24 md:pb-8')}>
+        <div className="mb-4">
+          <PendingOrderBanner />
+        </div>
         <Outlet />
       </main>
 
@@ -202,34 +179,6 @@ const Layout = () => {
             </div>
           </div>
         </nav>
-      )}
-
-      {showUpdateModal && updateInfo && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-            <div className="text-center mb-4">
-              <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <svg className="w-8 h-8 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-gray-800">发现新版本</h3>
-              <p className="text-sm text-gray-500 mt-1">v{updateInfo.version}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3 mb-4 max-h-40 overflow-y-auto">
-              <p className="text-xs text-gray-600 whitespace-pre-line">{updateInfo.releaseNotes}</p>
-            </div>
-            {updateInfo.forceUpdate && <p className="text-xs text-red-500 text-center mb-3">本次为强制更新，请更新后继续使用</p>}
-            <div className="flex gap-3">
-              {!updateInfo.forceUpdate && (
-                <button onClick={() => setShowUpdateModal(false)} className="flex-1 py-2.5 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-gray-50 transition-colors">稍后</button>
-              )}
-              <button onClick={handleUpdate} disabled={updating} className="flex-1 py-2.5 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                {updating ? '下载中...' : '立即更新'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

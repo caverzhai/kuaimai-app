@@ -15,7 +15,9 @@ import {
 } from '../../api';
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
 import { uploadImageToServer } from '../../utils/imageUpload';
+import { getErrorMessage } from '../../utils/errorMessage';
 import { useAuth } from '../../contexts/AuthContext';
+import { useImagePreview } from '@client/src/components/ImageLightbox';
 import {
   ArrowLeft,
   Mic,
@@ -80,6 +82,7 @@ const ChatRoomDetailPage: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { previewImage } = useImagePreview();
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -106,6 +109,9 @@ const ChatRoomDetailPage: React.FC = () => {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const isRecordingRef = useRef(false);
   const shouldStopRef = useRef(false);
+  const cancelFlagRef = useRef(false);
+  const startTouchYRef = useRef(0);
+  const lastTouchYRef = useRef(0);
   const recordStartTimeRef = useRef(0);
 
   const scrollToBottom = useCallback(() => {
@@ -119,7 +125,7 @@ const ChatRoomDetailPage: React.FC = () => {
       setRoom(data);
       setIsOnMic(data.micSlots.some((m: MicSlot) => m.userId === user?.id));
     } catch (err: any) {
-      setError(err.response?.data?.message || '加载聊天室失败');
+      setError(getErrorMessage(err, '加载聊天室'));
     }
   }, [roomId, user?.id]);
 
@@ -182,7 +188,7 @@ const ChatRoomDetailPage: React.FC = () => {
       setError('聊天室已关闭');
       setTimeout(() => navigate(-1), 1500);
     } catch (err: any) {
-      setError(err.response?.data?.message || '关闭失败');
+      setError(getErrorMessage(err, '关闭聊天室'));
     }
   };
 
@@ -202,7 +208,7 @@ const ChatRoomDetailPage: React.FC = () => {
       setShowEmoji(false);
       loadMessages();
     } catch (err: any) {
-      setError(err.response?.data?.message || '发送失败');
+      setError(getErrorMessage(err, '发送消息'));
     } finally {
       setSending(false);
     }
@@ -225,7 +231,7 @@ const ChatRoomDetailPage: React.FC = () => {
       });
       loadMessages();
     } catch (err: any) {
-      setError(err.response?.data?.message || '发送图片失败');
+      setError(getErrorMessage(err, '发送图片'));
     } finally {
       setSending(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -236,6 +242,7 @@ const ChatRoomDetailPage: React.FC = () => {
     // 防止重复调用（移动端onTouchStart和onMouseDown都会触发）
     if (isRecordingRef.current) return;
     isRecordingRef.current = true;
+    cancelFlagRef.current = false;
     if (room?.isMuted) {
       setError('你已被禁言');
       isRecordingRef.current = false;
@@ -265,10 +272,12 @@ const ChatRoomDetailPage: React.FC = () => {
 
       // 如果在等待权限期间用户已经松开按钮，直接停止
       if (shouldStopRef.current) {
+        const wasCancelled = cancelFlagRef.current;
+        cancelFlagRef.current = false;
         stream.getTracks().forEach((t) => t.stop());
         isRecordingRef.current = false;
         shouldStopRef.current = false;
-        setError('录音时间太短');
+        if (!wasCancelled) setError('录音时间太短');
         return;
       }
       const mediaRecorder = new MediaRecorder(stream);
@@ -281,6 +290,8 @@ const ChatRoomDetailPage: React.FC = () => {
 
       mediaRecorder.onstop = async () => {
         try {
+          const wasCancelled = cancelFlagRef.current;
+          cancelFlagRef.current = false;
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           // 用时间戳计算真实时长，避免定时器计数不准
           const duration = Math.max(1, Math.round((Date.now() - recordStartTimeRef.current) / 1000));
@@ -288,6 +299,12 @@ const ChatRoomDetailPage: React.FC = () => {
           setRecordingTime(0);
           stream.getTracks().forEach((t) => t.stop());
           mediaRecorderRef.current = null;
+
+          if (wasCancelled) {
+            setIsRecording(false);
+            setRecordingTime(0);
+            return;
+          }
 
           if (duration < 1) {
             setError('录音时间太短');
@@ -324,7 +341,7 @@ const ChatRoomDetailPage: React.FC = () => {
               setSending(false);
             } catch (uploadErr: any) {
               console.error('[Voice] 上传失败:', uploadErr);
-              setError(uploadErr.response?.data?.message || uploadErr.message || '语音上传失败');
+              setError(getErrorMessage(uploadErr, '上传语音'));
               setSending(false);
             }
           };
@@ -334,7 +351,7 @@ const ChatRoomDetailPage: React.FC = () => {
           };
         } catch (err: any) {
           console.error('[Voice] 录音处理失败:', err);
-          setError(err.message || '语音处理失败');
+          setError(getErrorMessage(err, '处理语音'));
           setSending(false);
           setIsRecording(false);
         }
@@ -386,6 +403,34 @@ const ChatRoomDetailPage: React.FC = () => {
     }
   };
 
+  // ===== 长按录音：按下开始，松开发送，上滑取消 =====
+  const handleMicDown = (e: React.PointerEvent) => {
+    if (!room?.isActive || room.isMuted) return;
+    e.preventDefault();
+    try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* noop */ }
+    startTouchYRef.current = e.clientY;
+    lastTouchYRef.current = e.clientY;
+    startRecording();
+  };
+
+  const handleMicMove = (e: React.PointerEvent) => {
+    lastTouchYRef.current = e.clientY;
+  };
+
+  const handleMicUp = (e: React.PointerEvent) => {
+    e.preventDefault();
+    // 上滑超过 80px：取消，不发送
+    if (startTouchYRef.current - lastTouchYRef.current > 80) {
+      cancelFlagRef.current = true;
+    }
+    stopRecording();
+  };
+
+  const handleMicCancel = () => {
+    cancelFlagRef.current = true;
+    stopRecording();
+  };
+
   const handleMicToggle = async () => {
     if (!room || room.type !== 'public') return;
     try {
@@ -404,7 +449,7 @@ const ChatRoomDetailPage: React.FC = () => {
       }
       loadRoom();
     } catch (err: any) {
-      setError(err.response?.data?.message || '操作失败');
+      setError(getErrorMessage(err, '上麦操作'));
     }
   };
 
@@ -426,7 +471,7 @@ const ChatRoomDetailPage: React.FC = () => {
       setError('已同意上麦申请');
       loadMicRequests();
     } catch (err: any) {
-      setError(err.response?.data?.message || '操作失败');
+      setError(getErrorMessage(err, '同意上麦申请'));
     }
   };
 
@@ -437,7 +482,7 @@ const ChatRoomDetailPage: React.FC = () => {
       setError('已拒绝上麦申请');
       loadMicRequests();
     } catch (err: any) {
-      setError(err.response?.data?.message || '操作失败');
+      setError(getErrorMessage(err, '拒绝上麦申请'));
     }
   };
 
@@ -644,7 +689,7 @@ const ChatRoomDetailPage: React.FC = () => {
                         src={msg.content}
                         alt="图片"
                         className="w-full h-auto rounded-lg"
-                        onClick={() => window.open(msg.content, '_blank')}
+                        onClick={() => previewImage(msg.content)}
                       />
                     </div>
                   )}
@@ -684,29 +729,8 @@ const ChatRoomDetailPage: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 表情面板 */}
-      {showEmoji && (
-        <div className="bg-white border-t p-3 grid grid-cols-10 gap-2 flex-shrink-0 max-h-40 overflow-y-auto">
-          {EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => insertEmoji(emoji)}
-              className="text-2xl p-1 hover:bg-gray-100 rounded"
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* 底部输入栏 */}
-      <div className="bg-white border-t px-3 py-3 flex items-center gap-2 flex-shrink-0 pb-[calc(env(safe-area-inset-bottom)+12px)]">
-        <button
-          onClick={() => setShowEmoji(!showEmoji)}
-          className="p-2.5 text-gray-500 flex-shrink-0"
-        >
-          <Smile className="w-7 h-7" />
-        </button>
+      {/* 底部输入栏（relative：供录音大按钮悬浮定位） */}
+      <div className="relative bg-white border-t px-3 py-3 flex items-center gap-2 flex-shrink-0 pb-[calc(env(safe-area-inset-bottom)+12px)]">
         <button
           onClick={() => fileInputRef.current?.click()}
           className="p-2.5 text-gray-500 flex-shrink-0"
@@ -723,41 +747,37 @@ const ChatRoomDetailPage: React.FC = () => {
         {isRecording ? (
           <div className="flex-1 flex items-center gap-2 bg-red-50 rounded-full px-4 py-2.5 min-w-0">
             <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
-            <span className="text-red-500 font-medium text-base truncate">录音中 {recordingTime}s</span>
-            <button
-              onClick={stopRecording}
-              className="ml-auto px-4 py-1.5 bg-red-500 text-white rounded-full text-sm flex-shrink-0"
-            >
-              发送
-            </button>
+            <span className="text-red-500 font-medium text-base truncate">录音中 {recordingTime}s · 松开发送，上滑取消</span>
           </div>
         ) : (
-          <>
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendText()}
-              placeholder={!room.isActive ? '聊天室已关闭' : room.isMuted ? '你已被禁言' : '说点什么...'}
-              disabled={room.isMuted || !room.isActive}
-              className="flex-1 min-w-0 px-4 py-2.5 bg-gray-100 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
-            />
-            <button
-              onPointerDown={startRecording}
-              onPointerUp={stopRecording}
-              onPointerLeave={stopRecording}
-              className={`p-2.5 text-gray-500 flex-shrink-0 ${(!room.isActive || room.isMuted) ? 'opacity-50 pointer-events-none' : ''}`}
-            >
-              <Mic className="w-7 h-7" />
-            </button>
-            <button
-              onClick={handleSendText}
-              disabled={!inputText.trim() || sending || !room.isActive}
-              className="px-5 py-2.5 bg-orange-500 text-white rounded-full text-base font-medium disabled:bg-gray-300 disabled:text-gray-500 flex-shrink-0"
-            >
-              发送
-            </button>
-          </>
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSendText()}
+            placeholder={!room.isActive ? '聊天室已关闭' : room.isMuted ? '你已被禁言' : '说点什么...'}
+            disabled={room.isMuted || !room.isActive}
+            className="flex-1 min-w-0 px-4 py-2.5 bg-gray-100 rounded-full text-base focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+          />
+        )}
+        {/* 录音大按钮：悬浮在输入框上方，长按录音、松开发送，录音中不卸载 */}
+        <button
+          onPointerDown={handleMicDown}
+          onPointerMove={handleMicMove}
+          onPointerUp={handleMicUp}
+          onPointerCancel={handleMicCancel}
+          className={`touch-none select-none absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+12px)] w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-colors ${isRecording ? 'bg-red-500 text-white' : 'bg-orange-500 text-white'} ${(!room.isActive || room.isMuted) ? 'opacity-50 pointer-events-none' : ''}`}
+        >
+          <Mic className="w-8 h-8" />
+        </button>
+        {!isRecording && (
+          <button
+            onClick={handleSendText}
+            disabled={!inputText.trim() || sending || !room.isActive}
+            className="px-5 py-2.5 bg-orange-500 text-white rounded-full text-base font-medium disabled:bg-gray-300 disabled:text-gray-500 flex-shrink-0"
+          >
+            发送
+          </button>
         )}
       </div>
     </div>

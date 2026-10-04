@@ -12,13 +12,17 @@ import {
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useAuth } from '@client/src/contexts/AuthContext';
+import { getSecurityQuestion } from '@client/src/api';
 import { APP_VERSION } from '@client/src/utils/version';
 import { Html5Qrcode } from 'html5-qrcode';
+import { ensureCameraPermission } from '@client/src/utils/nativePermission';
+import { getErrorMessage } from '@client/src/utils/errorMessage';
+import { isValidNickname, NICKNAME_RULE_HINT } from '@shared/validation';
 
 const RegisterPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { register } = useAuth();
+  const { register, login } = useAuth();
   const [phone, setPhone] = useState('');
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
@@ -36,7 +40,7 @@ const RegisterPage = () => {
   useEffect(() => {
     const codeFromUrl = searchParams.get('inviteCode');
     if (codeFromUrl) {
-      setInviteCode(codeFromUrl);
+      setInviteCode(codeFromUrl.trim().toUpperCase());
       setHasInviteCode(true);
     }
   }, [searchParams]);
@@ -54,6 +58,11 @@ const RegisterPage = () => {
   // 启动摄像头扫码
   const startScanner = async () => {
     try {
+      const cameraOk = await ensureCameraPermission();
+      if (!cameraOk) {
+        setError('摄像头权限被拒绝，请在系统设置中允许 AI快卖 使用摄像头后重试');
+        return;
+      }
       const html5QrCode = new Html5Qrcode('qr-reader');
       scannerRef.current = html5QrCode;
 
@@ -61,16 +70,27 @@ const RegisterPage = () => {
         { facingMode: 'environment' },
         {
           fps: 10,
-          qrbox: { width: 250, height: 250 },
+          qrbox: (vw: number, vh: number) => {
+            const size = Math.floor(Math.min(vw, vh) * 0.72);
+            return { width: size, height: size };
+          },
         },
         (decodedText) => {
-          // 扫描成功
+          // 扫描成功：从结果中提取邀请码
           let code = decodedText;
           if (code.includes('inviteCode=')) {
             const match = code.match(/inviteCode=([^&]+)/);
             if (match) code = match[1];
           }
-          setInviteCode(code.toUpperCase());
+          code = code.replace(/[\s/]+$/g, '').trim().toUpperCase();
+          // 严格校验：邀请码必须恰好 8 位大写字母/数字。
+          // 防止近距离扫屏幕时因反光、摩尔纹、二维码只入框一部分导致解码误读，填入错码或短码。
+          if (!/^[A-Z0-9]{8}$/.test(code)) {
+            setError('未识别到有效邀请码，请将二维码完整、清晰地对准扫描框并保持稳定');
+            return; // 丢弃本次误读，继续扫描，不填入
+          }
+          setError('');
+          setInviteCode(code);
           setHasInviteCode(true);
           stopScanner();
         },
@@ -116,6 +136,10 @@ const RegisterPage = () => {
       setError('请输入昵称');
       return;
     }
+    if (!isValidNickname(nickname.trim())) {
+      setError(NICKNAME_RULE_HINT);
+      return;
+    }
     if (!password) {
       setError('请输入密码');
       return;
@@ -141,23 +165,37 @@ const RegisterPage = () => {
       await register({
         phone,
         nickname,
-        password,
-        inviteCode: hasInviteCode ? inviteCode : undefined,
+        password: password.trim(),
+        inviteCode: hasInviteCode ? inviteCode.trim().toUpperCase() : undefined,
         securityQuestion,
         securityAnswer,
       });
       navigate('/');
     } catch (err: unknown) {
       logger.error('注册失败', err);
-      let msg = '注册失败，请稍后重试';
-      if (err instanceof Error) {
-        msg = err.message;
-      } else if (err && typeof err === 'object') {
-        const e = err as Record<string, unknown>;
-        if (e.message) msg = String(e.message);
-        else if (e.response?.data?.message) msg = String(e.response.data.message);
+      // 容错：手机弱网可能出现"后端已注册成功、响应却丢失"，
+      // 此时不直接判失败，先查这个手机号是不是其实已经注册好了。
+      let alreadyRegistered = false;
+      try {
+        // 接口对未注册手机号返回 404（进 catch）；只要成功返回即说明账号已创建，
+        // 不依赖安全问题是否有值（部分老账号注册时未设安全问题）。
+        await getSecurityQuestion(phone.trim());
+        alreadyRegistered = true;
+      } catch {
+        alreadyRegistered = false;
       }
-      setError(msg);
+      if (alreadyRegistered) {
+        // 账号其实已建好，尝试用刚设置的密码自动登录
+        try {
+          await login(phone.trim(), password.trim());
+          navigate('/');
+          return;
+        } catch {
+          setError('你的账号已创建成功，但自动登录失败。请点下方"立即登录"，用刚设置的密码登录即可');
+          return;
+        }
+      }
+      setError(getErrorMessage(err, '注册'));
     } finally {
       setLoading(false);
     }
@@ -216,10 +254,17 @@ const RegisterPage = () => {
                   type="text"
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
-                  placeholder="请输入昵称"
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 transition-colors text-sm"
+                  placeholder="2-6个汉字或4-12个英文字母"
+                  className={`w-full pl-10 pr-4 py-2.5 border rounded-xl focus:outline-none focus:ring-2 transition-colors text-sm ${
+                    nickname.trim() && !isValidNickname(nickname.trim())
+                      ? 'border-red-300 focus:border-red-400 focus:ring-red-100'
+                      : 'border-gray-200 focus:border-orange-500 focus:ring-orange-100'
+                  }`}
                 />
               </div>
+              {nickname.trim() && !isValidNickname(nickname.trim()) && (
+                <p className="mt-1 text-xs text-red-500">{NICKNAME_RULE_HINT}</p>
+              )}
             </div>
 
             <div>

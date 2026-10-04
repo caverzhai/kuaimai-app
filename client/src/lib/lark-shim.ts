@@ -88,13 +88,18 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
-    const error = new Error(`HTTP ${response.status}: ${errorText || response.statusText}`) as Error & { response?: AxiosResponse };
+    // 后端返回 JSON（{error:{message:...}}），解析成对象，否则前端读不到 message
+    let errorData: unknown = errorText;
+    try { errorData = errorText ? JSON.parse(errorText) : {}; } catch { /* 非 JSON 保持字符串 */ }
+    const error = new Error(`HTTP ${response.status}: ${errorText || response.statusText}`) as Error & { response?: AxiosResponse; status?: number };
     error.response = {
-      data: errorText,
+      data: errorData,
       status: response.status,
       statusText: response.statusText,
       headers: responseHeaders,
     };
+    // 同时把 status 挂到 error 本体，兼容 fetchUser 读 error.status 的写法
+    error.status = response.status;
     throw error;
   }
 

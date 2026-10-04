@@ -21,6 +21,8 @@ export async function register(data: {
   password: string;
   avatarUrl?: string;
   inviteCode?: string;
+  securityQuestion?: string;
+  securityAnswer?: string;
 }) {
   try {
     const response = await axiosForBackend({
@@ -31,6 +33,20 @@ export async function register(data: {
     return response.data;
   } catch (error) {
     logger.error('注册失败', error);
+    throw error;
+  }
+}
+
+export async function getSecurityQuestion(phone: string) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/auth/get-security-question',
+      method: 'POST',
+      data: { phone },
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取安全问题失败', error);
     throw error;
   }
 }
@@ -61,6 +77,33 @@ export async function getRelationTree() {
   }
 }
 
+export async function getAssessment() {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/users/assessment',
+      method: 'GET',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('获取考核信息失败', error);
+    throw error;
+  }
+}
+
+export async function submitClonePhone(newPhone: string) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/users/clone-phone',
+      method: 'POST',
+      data: { newPhone },
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('提交分身手机号失败', error);
+    throw error;
+  }
+}
+
 export async function updateProfile(data: Record<string, unknown>) {
   try {
     const response = await axiosForBackend({
@@ -71,6 +114,20 @@ export async function updateProfile(data: Record<string, unknown>) {
     return response.data;
   } catch (error) {
     logger.error('更新资料失败', error);
+    throw error;
+  }
+}
+
+export async function changePassword(oldPassword: string, newPassword: string) {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/users/change-password',
+      method: 'POST',
+      data: { oldPassword, newPassword },
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('修改密码失败', error);
     throw error;
   }
 }
@@ -369,6 +426,19 @@ export async function startUpgradeTask(taskId: string) {
     return response.data;
   } catch (error) {
     logger.error('开始升级任务失败', error);
+    throw error;
+  }
+}
+
+export async function confirmNextLevel() {
+  try {
+    const response = await axiosForBackend({
+      url: '/api/upgrade/confirm',
+      method: 'POST',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('确认升级失败', error);
     throw error;
   }
 }
@@ -1246,4 +1316,194 @@ export async function rejectManagementFee(id: string) {
     logger.error('拒绝管理费失败', error);
     throw error;
   }
+}
+
+// ============================================================
+// 四星考核返还打款（达标自动生成申请，平台扫码支付）
+// ============================================================
+
+export async function getRefundList() {
+  try {
+    const response = await axiosForBackend({ url: '/api/admin/refunds', method: 'GET' });
+    return response.data;
+  } catch (error) {
+    logger.error('获取返还打款申请失败', error);
+    throw error;
+  }
+}
+
+export async function confirmRefund(userId: string) {
+  try {
+    const response = await axiosForBackend({
+      url: `/api/admin/refunds/${userId}/confirm`,
+      method: 'POST',
+    });
+    return response.data;
+  } catch (error) {
+    logger.error('确认返还打款失败', error);
+    throw error;
+  }
+}
+
+// ============================================================
+// 系统通知（管理员全员广播/个人通知；用户轮询拉取）
+// ============================================================
+
+export async function getNotificationsAll() {
+  const response = await axiosForBackend({ url: '/api/notifications/all', method: 'GET' });
+  return response.data;
+}
+
+export async function sendNotification(data: {
+  target: 'all' | 'user';
+  userId?: string;
+  title: string;
+  body: string;
+  type?: 'system' | 'update';
+  payload?: Record<string, any> | null;
+}) {
+  const response = await axiosForBackend({ url: '/api/notifications/send', method: 'POST', data });
+  return response.data;
+}
+
+export async function getPendingNotifications(afterSeq: number) {
+  const response = await axiosForBackend({
+    url: `/api/notifications/pending?after=${afterSeq}`,
+    method: 'GET',
+  });
+  return response.data;
+}
+
+export async function getPlatformNotice() {
+  const response = await axiosForBackend({ url: '/api/notifications/current', method: 'GET' });
+  return response.data;
+}
+
+export async function updatePlatformNotice(content: string) {
+  const response = await axiosForBackend({ url: '/api/notifications/current', method: 'PUT', data: { content } });
+  return response.data;
+}
+
+// ============================================================
+// 1号会议室（语音会议室，纯 HTTP 准实时）
+// ============================================================
+
+export async function getMeetingList() {
+  const response = await axiosForBackend({ url: '/api/meeting', method: 'GET' });
+  return response.data;
+}
+
+export async function getMeetingState(id: string, sinceSeq = 0) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/state`,
+    method: 'GET',
+    params: { sinceSeq },
+  });
+  return response.data;
+}
+
+export async function meetingHeartbeat(id: string) {
+  const response = await axiosForBackend({ url: `/api/meeting/${id}/heartbeat`, method: 'POST' });
+  return response.data;
+}
+
+export async function meetingLeave(id: string) {
+  const response = await axiosForBackend({ url: `/api/meeting/${id}/presence`, method: 'DELETE' });
+  return response.data;
+}
+
+export async function meetingRaiseHand(id: string) {
+  const response = await axiosForBackend({ url: `/api/meeting/${id}/hand`, method: 'POST' });
+  return response.data;
+}
+
+export async function meetingCancelHand(id: string) {
+  const response = await axiosForBackend({ url: `/api/meeting/${id}/hand/cancel`, method: 'POST' });
+  return response.data;
+}
+
+export async function meetingApprove(id: string, userId: string) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/approve`,
+    method: 'POST',
+    data: { userId },
+  });
+  return response.data;
+}
+
+export async function meetingStop(id: string) {
+  const response = await axiosForBackend({ url: `/api/meeting/${id}/stop`, method: 'POST' });
+  return response.data;
+}
+
+export async function meetingAssignHost(id: string, userId: string) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/host`,
+    method: 'POST',
+    data: { userId },
+  });
+  return response.data;
+}
+
+export async function meetingUploadChunk(id: string, base64: string, duration: number) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/chunks`,
+    method: 'POST',
+    data: { base64, duration },
+  });
+  return response.data;
+}
+
+export async function getMeetingMessages(id: string, sinceTime?: string) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/messages`,
+    method: 'GET',
+    params: sinceTime ? { sinceTime } : {},
+  });
+  return response.data;
+}
+
+export async function meetingSendMessage(id: string, content: string) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/messages`,
+    method: 'POST',
+    data: { content },
+  });
+  return response.data;
+}
+
+export async function meetingMute(id: string, userId: string, minutes?: number) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/mute`,
+    method: 'POST',
+    data: minutes ? { userId, minutes } : { userId },
+  });
+  return response.data;
+}
+
+export async function meetingUnmute(id: string, userId: string) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/unmute`,
+    method: 'POST',
+    data: { userId },
+  });
+  return response.data;
+}
+
+export async function meetingKick(id: string, userId: string) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/kick`,
+    method: 'POST',
+    data: { userId },
+  });
+  return response.data;
+}
+
+export async function meetingUnkick(id: string, userId: string) {
+  const response = await axiosForBackend({
+    url: `/api/meeting/${id}/unkick`,
+    method: 'POST',
+    data: { userId },
+  });
+  return response.data;
 }

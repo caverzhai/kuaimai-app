@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useImagePreview } from '@/components/ImageLightbox';
 import { getFinanceInfo as apiGetFinanceInfo } from '../../api';
 import type { UserInfo } from '@shared/api.interface';
 import { LEVEL_NAMES, LEVEL_LAYERS } from '@shared/api.interface';
@@ -17,13 +18,24 @@ import {
   RefreshCw,
   Edit,
   Building,
+  Ban,
+  RotateCcw,
 } from 'lucide-react';
 import { Image } from '@client/src/components/ui/image';
+import { getErrorMessage } from '../../utils/errorMessage';
+import { getIncomeStats, getRecentConsult } from '../../api/stats';
 
 interface FinanceInfoData {
   totalConsultIncome: string;
   pendingReclaimAmount: string;
   overflowLossAmount: string;
+  permanentLossAmount: string; // 永久流失（级别不够）
+  platformCollectedAmount: string; // 平台累计代收（可返回）
+  refundedAmount: string; // 已返还
+  assessmentStatus: string; // none/collecting/passed/eliminated
+  fourStarAt?: string;
+  refundRate?: number;
+  refundStatus: string;
   directInviteCount: number;
   thresholdBlocked: boolean;
   thresholdTriggeredAt?: string;
@@ -31,10 +43,37 @@ interface FinanceInfoData {
 
 export default function FinancePage() {
   const { user, loading: authLoading } = useAuth();
+  const { previewImage } = useImagePreview();
   const navigate = useNavigate();
   const [data, setData] = useState<FinanceInfoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 倒计时当前时间（每分钟刷新）
+  const [nowTs, setNowTs] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowTs(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 实际到账收入统计 + 近3天咨询费明细
+  const [income, setIncome] = useState<any>(null);
+  const [recent, setRecent] = useState<any[]>([]);
+  const [showDaily, setShowDaily] = useState(false);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    (async () => {
+      try {
+        const [inc, rec] = await Promise.all([
+          getIncomeStats(),
+          getRecentConsult(3),
+        ]);
+        setIncome(inc);
+        setRecent(rec);
+      } catch (e) {
+        logger.error('获取收入统计失败', e);
+      }
+    })();
+  }, [authLoading, user]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -49,7 +88,7 @@ export default function FinancePage() {
       setData(result as FinanceInfoData);
     } catch (err) {
       logger.error('获取资金信息失败', err);
-      setError('加载失败，请稍后重试');
+      setError(getErrorMessage(err, '加载资金数据'));
     } finally {
       setLoading(false);
     }
@@ -138,7 +177,7 @@ export default function FinancePage() {
       bg: 'bg-gray-50',
     },
     {
-      label: '直推人数',
+      label: '有效直推人数',
       value: `${data?.directInviteCount || 0}人`,
       icon: Users,
       color: 'text-blue-500',
@@ -146,8 +185,135 @@ export default function FinancePage() {
     },
   ];
 
+  // ── 可返回流失（四星考核平台代收）倒计时 ──
+  const fourStarTime = data?.fourStarAt ? new Date(data.fourStarAt).getTime() : null;
+  const day30Deadline = fourStarTime ? fourStarTime + 30 * 86400000 : null;
+  const day60Deadline = fourStarTime ? fourStarTime + 60 * 86400000 : null;
+
+  function formatRemain(ms: number): string {
+    if (ms <= 0) return '已截止';
+    const days = Math.floor(ms / 86400000);
+    const hours = Math.floor((ms % 86400000) / 3600000);
+    if (days > 0) return `${days}天${hours}小时`;
+    const mins = Math.floor((ms % 3600000) / 60000);
+    return `${hours}小时${mins}分`;
+  }
+
+  let reclaimWindow: { text: string; remain?: string; tone: string } | null = null;
+  if (fourStarTime && day30Deadline && day60Deadline) {
+    if (data?.assessmentStatus === 'collecting') {
+      if (nowTs < day30Deadline) {
+        reclaimWindow = { text: '100% 全额返还窗口', remain: formatRemain(day30Deadline - nowTs), tone: 'text-green-600' };
+      } else if (nowTs < day60Deadline) {
+        reclaimWindow = { text: '50% 返还窗口', remain: formatRemain(day60Deadline - nowTs), tone: 'text-orange-600' };
+      } else {
+        reclaimWindow = { text: '返还窗口已关闭', tone: 'text-red-600' };
+      }
+    } else if (data?.assessmentStatus === 'passed') {
+      reclaimWindow = {
+        text: data.refundStatus === 'confirmed' ? '已达标，返还已打款' : '已达标，待平台打款',
+        tone: 'text-green-600',
+      };
+    }
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-8">
+      {/* 实际到账收入（以确认收款为准，商城/咨询分开） */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <Wallet className="h-5 w-5 text-orange-500" />
+            我的收入（实际到账）
+          </h2>
+          <button
+            onClick={() => setShowDaily((v) => !v)}
+            className="text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1"
+          >
+            {showDaily ? '收起日期表' : '查看每日收入'}
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-green-50 rounded-xl p-3 text-center">
+            <div className="text-xs text-gray-500 mb-1">咨询费</div>
+            <div className="text-sm font-bold text-green-600">¥{(income?.totalConsult ?? 0).toFixed(2)}</div>
+          </div>
+          <div className="bg-orange-50 rounded-xl p-3 text-center">
+            <div className="text-xs text-gray-500 mb-1">商城</div>
+            <div className="text-sm font-bold text-orange-600">¥{(income?.totalMall ?? 0).toFixed(2)}</div>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-3 text-center">
+            <div className="text-xs text-gray-500 mb-1">合计</div>
+            <div className="text-sm font-bold text-gray-900">¥{(income?.total ?? 0).toFixed(2)}</div>
+          </div>
+        </div>
+        {showDaily && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-500 border-b border-gray-100">
+                  <th className="text-left py-2 font-medium">日期</th>
+                  <th className="text-right py-2 font-medium">咨询费</th>
+                  <th className="text-right py-2 font-medium">商城</th>
+                  <th className="text-right py-2 font-medium">合计</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(income?.daily ?? []).map((d: any) => (
+                  <tr key={d.date} className="border-b border-gray-50">
+                    <td className="py-2 text-gray-700">{d.date}</td>
+                    <td className="py-2 text-right text-green-600">{d.consult.toFixed(2)}</td>
+                    <td className="py-2 text-right text-orange-600">{d.mall.toFixed(2)}</td>
+                    <td className="py-2 text-right font-semibold text-gray-900">{d.total.toFixed(2)}</td>
+                  </tr>
+                ))}
+                {(income?.daily ?? []).length === 0 && (
+                  <tr><td colSpan={4} className="py-4 text-center text-gray-400">暂无收入记录</td></tr>
+                )}
+              </tbody>
+            </table>
+            <p className="text-xs text-gray-400 mt-2">仅统计已确认收到的款项；零元当天不入表。</p>
+          </div>
+        )}
+      </div>
+
+      {/* 最近3天咨询费到账明细 */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2 mb-4">
+          <Clock className="h-5 w-5 text-orange-500" />
+          最近3天咨询费到账
+        </h2>
+        {recent.length === 0 ? (
+          <p className="text-sm text-gray-400 py-2">近3天暂无咨询费到账</p>
+        ) : (
+          <div className="space-y-3">
+            {recent.map((it: any) => (
+              <div key={it.orderNo} className="flex items-center gap-3 bg-gray-50 rounded-xl p-3">
+                <div className="w-12 h-12 bg-white rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+                  {it.screenshotUrl ? (
+                    <Image src={it.screenshotUrl} alt="支付截图" className="w-full h-full object-cover cursor-zoom-in" onClick={() => previewImage(it.screenshotUrl)} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">无图</div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-gray-900">¥{it.amount.toFixed(2)}</div>
+                  <div className="text-xs text-gray-500 truncate">
+                    {it.payerNickname || '未命名'} {it.payerPhone} · {LEVEL_NAMES[it.payerLevel] ?? '初级'}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {it.confirmedAt
+                      ? new Date(it.confirmedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                      : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-gray-400 mt-3">点击缩略图可查看支付凭证大图。</p>
+      </div>
+
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 gap-3">
         {stats.map((stat, index) => (
@@ -368,7 +534,13 @@ export default function FinancePage() {
                 {LEVEL_NAMES['level_6']}：可享受6层内团队收益
               </li>
               <li>
-                {LEVEL_NAMES['level_7']} 及以上：不受层级限制
+                {LEVEL_NAMES['level_7']}：可享受7层内团队收益
+              </li>
+              <li>
+                {LEVEL_NAMES['level_8']}：可享受8层内团队收益
+              </li>
+              <li>
+                {LEVEL_NAMES['level_9']}：可享受9层内团队收益
               </li>
             </ul>
             <p className="pt-1 text-orange-600">
@@ -376,6 +548,60 @@ export default function FinancePage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* 永久流失咨询费（收款人级别不够，收不回） */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2 mb-3">
+          <Ban className="h-5 w-5 text-red-500" />
+          永久流失咨询费
+        </h2>
+        <div className="bg-red-50 rounded-xl p-4 flex justify-between items-center">
+          <span className="text-sm text-gray-600">累计永久流失金额</span>
+          <span className="text-lg font-bold text-red-600">
+            ¥{data?.permanentLossAmount || '0'}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+          收取某级升级任务的咨询费时，收款人级别须达到该任务的目标级别；级别不足时，该笔咨询费由平台收取且不可返还。直推人在累计收款满 5100 元前不受此限制，升级可避免后续再发生此类流失。
+        </p>
+      </div>
+
+      {/* 可返回流失咨询费（四星考核平台临时代收） */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2 mb-3">
+          <RotateCcw className="h-5 w-5 text-orange-500" />
+          可返回流失咨询费
+        </h2>
+        <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-500">平台累计代收</span>
+            <span className="text-lg font-bold text-orange-600">
+              ¥{data?.platformCollectedAmount || '0'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center border-t border-gray-200 pt-3">
+            <span className="text-sm text-gray-500">已返还金额</span>
+            <span className="text-sm font-semibold text-green-600">
+              ¥{data?.refundedAmount || '0'}
+            </span>
+          </div>
+          {reclaimWindow && (
+            <div className="flex justify-between items-center border-t border-gray-200 pt-3">
+              <span className={`text-sm font-medium ${reclaimWindow.tone}`}>
+                {reclaimWindow.text}
+              </span>
+              {reclaimWindow.remain && (
+                <span className={`text-sm font-semibold ${reclaimWindow.tone}`}>
+                  {reclaimWindow.remain}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+          成为四星咨询师后，若直推有效四星不足 3 人，期间咨询费由平台临时代收：30 天内拉满 3 人 100% 返还，60 天内拉满返还 50%，超过 60 天未达标账号失效。达标后自动生成返还打款申请，平台按您的收款码支付。
+        </p>
       </div>
     </div>
   );

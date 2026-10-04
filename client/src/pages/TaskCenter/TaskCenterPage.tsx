@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useVisiblePolling } from '@/hooks/useVisiblePolling';
+import { OnboardingGuide } from '@client/src/components/OnboardingGuide';
 import {
   getUpgradeCenter as apiGetUpgradeCenter,
   startUpgradeTask as apiStartUpgradeTask,
@@ -11,6 +13,7 @@ import {
   confirmConsultPayment,
   reviewConsultWork,
   getConsultantDetail,
+  confirmNextLevel as apiConfirmNextLevel,
 } from '../../api';
 import type {
   UpgradeCenterInfo,
@@ -36,6 +39,7 @@ import {
   AlertTriangle,
   Crown,
   UserPlus,
+  Users,
   Loader2,
   RefreshCw,
   Bell,
@@ -46,9 +50,15 @@ import {
   ChevronRight,
   Phone,
   CreditCard,
+  TrendingUp,
+  Lock,
 } from 'lucide-react';
 import { playNewTaskSound, playReviewSound, playReviewCompleteSound } from '../../utils/notification-sound';
 import { getCache, setCache } from '../../utils/cache';
+import { PullToRefresh } from '@client/src/components/ui/PullToRefresh';
+import CollectReminderSettings from '@client/src/components/CollectReminderSettings';
+import { toast } from 'sonner';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 type TabType = 'tasks' | 'review' | 'notifications';
 
@@ -138,10 +148,14 @@ function TaskCenterPage() {
     return !cached?.upgradeData; // 有缓存就不显示loading
   });
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
 
   // 待审核订单数据
   const [reviewOrders, setReviewOrders] = useState<ConsultOrderInfo[]>([]);
-  const [reviewLoading, setReviewLoading] = useState(true);
+  const [reviewLoading, setReviewLoading] = useState(() => {
+    const cached = getCachedTaskCenterData();
+    return !cached; // 有缓存不显示loading
+  });
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   // 我的咨询订单（用于防重复购买）- 使用lazy initial state
@@ -178,7 +192,7 @@ function TaskCenterPage() {
   // 计算待办总数
   const pendingTaskCount = upgradeData
     ? upgradeData.tasks.filter(
-        (t) => t.status === TASK_STATUS.PENDING || t.status === TASK_STATUS.IN_PROGRESS,
+        (t) => t.status === TASK_STATUS.PENDING || t.status === TASK_STATUS.IN_PROGRESS || t.status === TASK_STATUS.SUBMITTED,
       ).length
     : 0;
   const pendingReviewCount = reviewOrders.length;
@@ -262,7 +276,7 @@ function TaskCenterPage() {
           pageSize: 50,
         }).catch(() => ({ items: [] })),
         getMyMallOrders({
-          status: 'pending_review,pending_shipment,shipped',
+          status: 'pending_payment,pending_review,pending_shipment,pending_delivery',
           pageSize: 50,
         }).catch(() => ({ items: [] })),
       ]);
@@ -295,10 +309,33 @@ function TaskCenterPage() {
       }
     } catch (err) {
       logger.error('获取升级任务失败', err);
+      if (!silent) toast.error(getErrorMessage(err, '加载任务中心'));
     } finally {
       if (!silent) setUpgradeLoading(false);
     }
   }, [user, refreshUser]);
+
+  // 异常空状态自愈：已绑定邀请人、并非最高等级，却拿到无任何标记的空任务
+  // （多为部署重启/清理任务期间写入的陈旧缓存）。自动静默重拉，
+  // 避免任务区误显示“已是最高等级”而把新用户卡死。
+  const autoRecoverAttemptRef = useRef(0);
+  const isStaleEmptyTasks =
+    !!upgradeData &&
+    (upgradeData.tasks || []).length === 0 &&
+    !upgradeData.needBindInviter &&
+    !upgradeData.needConfirmUpgrade &&
+    (user as any)?.isInvited === true &&
+    (user as any)?.level !== 'level_9';
+  useEffect(() => {
+    if (activeTab !== 'tasks') return;
+    if (!isStaleEmptyTasks) {
+      autoRecoverAttemptRef.current = 0;
+      return;
+    }
+    if (autoRecoverAttemptRef.current >= 2) return;
+    autoRecoverAttemptRef.current += 1;
+    fetchUpgradeData(true);
+  }, [isStaleEmptyTasks, activeTab, fetchUpgradeData]);
 
   // 加载待审核订单
   const fetchReviewOrders = useCallback(async (silent = false) => {
@@ -390,7 +427,7 @@ function TaskCenterPage() {
           id: 'low_invite',
           type: 'info',
           title: '直推名额不足',
-          content: `当前直推人数：${user.directInviteCount}/3。完成3个直推后可永久解除收款限制，稳定收取线下咨询费。`,
+          content: `当前有效直推人数：${user.directInviteCount}/3。完成3个直推后可永久解除收款限制，稳定收取线下咨询费。`,
           time: new Date().toLocaleString(),
           read: false,
         });
@@ -405,31 +442,26 @@ function TaskCenterPage() {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   };
 
-  // 处理升级任务点击 - 先验证身份证
+  // 处理升级任务点击
   const handleUpgradeTaskClick = (targetId: string, amount: number, taskId: string) => {
-    if (!user?.idCardFrontUrl || !user?.idCardNumber) {
-      alert('请先完成实名认证（上传身份证正面）后再进行升级任务。\n\n前往「我的」页面，在实名认证模块上传身份证，系统将自动识别并填充身份信息。');
-      navigate('/profile');
-      return;
-    }
     navigate(`/consultant/${targetId}?amount=${amount}&taskId=${taskId}`);
   };
 
   useEffect(() => {
     if (authLoading || !user) return;
-    // 先从缓存读取任务中心数据，立即显示（即使缓存过期也先显示，后台再更新）
+    // 缓存优先：有旧内容立即显示、不自动请求（不白屏）
     const cached = getCache<{upgradeData: any; myOrders: any[]; myMallOrders: any[]}>(`task_center_${user.id}`, true);
+    let hasCacheData = false;
     if (cached) {
+      hasCacheData = true;
       if (cached.upgradeData) setUpgradeData(cached.upgradeData);
       if (cached.myOrders) setMyOrders(cached.myOrders);
       if (cached.myMallOrders) setMyMallOrders(cached.myMallOrders);
+      setUpgradeLoading(false);
+      setReviewLoading(false);
     }
-    // 只有页面可见时才从服务器加载数据，减少APP启动时的并发请求
-    // 首次加载显示loading；切换tab回来只静默更新，不闪loading
-    if (upgradeData?.tasks?.length > 0) {
-      fetchUpgradeData(true);
-      fetchReviewOrders(true);
-    } else {
+    // 无缓存（首次安装）才请求；有缓存靠下拉刷新
+    if (!hasCacheData) {
       fetchUpgradeData();
       fetchReviewOrders();
     }
@@ -444,45 +476,29 @@ function TaskCenterPage() {
   // 用于记录上次任务完成状态，检测任务完成后自动刷新用户信息
   const prevCompletedTaskIdsRef = useRef<Set<string>>(new Set());
 
-  // 轮询待审核订单和我的订单（每30秒，防止重复购买和更新倒计时）
-  useEffect(() => {
-    if (!user) return;
-    const timer = setInterval(() => {
-      fetchReviewOrders();
-      fetchUpgradeData();
+  // 是否有进行中的事项（待完成任务 / 待我审核 / 我的待处理订单）：有则高频轮询
+  const hasActiveWork =
+    totalPending > 0 || myOrders.length > 0 || myMallOrders.length > 0 || reviewOrders.length > 0;
+
+  // 具备审核职责（4星及以上咨询师 / 卖家）：空闲等单时也用中频15s，
+  // 保证新订单约15秒内出现，不会因低频60s而长时间看不到
+  const canReview = user ? (LEVEL_LAYERS[user.level] || 0) >= 4 || !!user.isSeller : false;
+
+  // 统一可见性轮询：高频10s / 等单中频15s / 空闲低频60s；APP 回前台延迟1.5s立即刷新，无需手动下拉
+  useVisiblePolling({
+    intervalMs: hasActiveWork ? 10000 : canReview ? 15000 : 60000,
+    visibleDelayMs: 1500,
+    onPoll: () => {
+      fetchReviewOrders(true);
+      fetchUpgradeData(true);
       // 每5分钟刷新一次用户信息（更新级别等）
-      const now = Date.now();
-      if (now - lastUserRefreshRef.current > 5 * 60 * 1000) {
-        lastUserRefreshRef.current = now;
+      const ts = Date.now();
+      if (ts - lastUserRefreshRef.current > 5 * 60 * 1000) {
+        lastUserRefreshRef.current = ts;
         refreshUser().catch(() => {});
       }
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [user, fetchReviewOrders, fetchUpgradeData, refreshUser]);
-
-  // 页面获得焦点时延迟刷新（防止重复购买，同时避免APP从后台切回时立即大量请求）
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && user) {
-        // 延迟2秒再刷新，避免APP从后台切回时与其他请求竞争
-        if (timeoutId) clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-          fetchUpgradeData();
-          fetchReviewOrders();
-          // 页面获得焦点时也刷新用户信息（更新级别等）
-          refreshUser().catch(() => {});
-        }, 2000);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleVisibilityChange);
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [user, fetchUpgradeData, fetchReviewOrders, refreshUser]);
+    },
+  });
 
   // 倒计时定时器（每秒更新）— 只在页面可见时运行，避免后台空转消耗CPU
   useEffect(() => {
@@ -502,11 +518,11 @@ function TaskCenterPage() {
     return `官方介入时间：${minutes}分${seconds.toString().padStart(2, '0')}秒`;
   };
 
-  // 计算自动审核截止时间（创建时间+20分钟）
+  // 计算自动审核截止时间（创建时间+3分钟）
   const getAutoConfirmDeadline = (createdAt?: string): string | undefined => {
     if (!createdAt) return undefined;
     const deadline = new Date(createdAt);
-    deadline.setMinutes(deadline.getMinutes() + 20);
+    deadline.setSeconds(deadline.getSeconds() + 180);
     return deadline.toISOString();
   };
 
@@ -517,6 +533,7 @@ function TaskCenterPage() {
       await fetchUpgradeData();
     } catch (err) {
       logger.error('开始任务失败', err);
+      toast.error(getErrorMessage(err, '开始任务'));
     } finally {
       setStartingId(null);
     }
@@ -529,6 +546,7 @@ function TaskCenterPage() {
       await fetchReviewOrders();
     } catch (err) {
       logger.error('确认收款失败', err);
+      toast.error(getErrorMessage(err, '确认收款'));
     } finally {
       setReviewingId(null);
     }
@@ -541,6 +559,7 @@ function TaskCenterPage() {
       await fetchReviewOrders();
     } catch (err) {
       logger.error('审核作业失败', err);
+      toast.error(getErrorMessage(err, '审核作业'));
     } finally {
       setReviewingId(null);
     }
@@ -576,7 +595,12 @@ function TaskCenterPage() {
   const currentLevelName = LEVEL_NAMES[user.level] || user.level;
   const currentLayer = LEVEL_LAYERS[user.level] || 0;
 
+  const manualRefresh = async () => {
+    await Promise.all([fetchUpgradeData(true), fetchReviewOrders(true)]);
+  };
+
   return (
+    <PullToRefresh onRefresh={manualRefresh}>
     <div className="max-w-3xl mx-auto pb-8">
       {/* 顶部标题栏 */}
       <div className="bg-gradient-to-r from-orange-500 to-orange-400 rounded-2xl p-5 text-white shadow-lg mb-4">
@@ -613,6 +637,11 @@ function TaskCenterPage() {
         </div>
       </div>
 
+      {/* 新手入门引导（未升四星者可见） */}
+      <div className="mb-4">
+        <OnboardingGuide />
+      </div>
+
       {/* 卖家订单管理入口（仅卖家可见） */}
       {user.isSeller && (
         <button
@@ -646,6 +675,26 @@ function TaskCenterPage() {
         </button>
       )}
 
+
+      {/* 我的关系树入口（仅卖家可见） */}
+      {user.isSeller && (
+        <button
+          onClick={() => navigate('/team')}
+          className="w-full mb-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl p-4 text-white shadow-lg flex items-center gap-3 active:opacity-90"
+        >
+          <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+            <Users className="h-5 w-5" />
+          </div>
+          <div className="flex-1 text-left">
+            <div className="font-bold text-base">我的关系树</div>
+            <div className="text-xs opacity-85">查看团队成员、直邀与下级层级</div>
+          </div>
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      )}
+
+      {/* 收款提醒设置 */}
+      <CollectReminderSettings />
 
       {/* Tab 切换 */}
       <div className="flex bg-white rounded-xl p-1 mb-4 shadow-sm border border-gray-100">
@@ -729,41 +778,88 @@ function TaskCenterPage() {
           ) : !upgradeData ? (
             <div className="text-center py-10 text-gray-400">
               <RefreshCw className="h-8 w-8 mx-auto mb-2" />
-              加载失败，请下拉刷新
+              内容加载失败，请点右上角刷新或下拉刷新重试
             </div>
           ) : upgradeData.tasks.length === 0 ? (
-            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-6 text-center">
-              <Crown className="h-12 w-12 text-amber-500 mx-auto mb-2" />
-              <div className="text-lg font-semibold text-amber-800">恭喜，您已是最高等级！</div>
-              <div className="text-sm text-amber-600 mt-1">
-                当前等级：{currentLevelName}（第{currentLayer}层）
+            upgradeData.needBindInviter ? (
+              <div className="bg-orange-50 border border-orange-200 rounded-2xl p-6 text-center">
+                <UserPlus className="h-12 w-12 text-orange-500 mx-auto mb-3" />
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">请先补充邀请码</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  检测到您的账号尚未绑定邀请人，已为您取消未完成的任务；请先补充邀请码激活账号后再开始任务
+                </p>
+                <button
+                  onClick={() => navigate('/supplement-inviter')}
+                  className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  去补充邀请码
+                </button>
               </div>
-            </div>
+            ) : upgradeData.needConfirmUpgrade && upgradeData.nextLevel ? (
+              <div className="bg-white rounded-2xl border border-orange-200 p-6 text-center shadow-sm">
+                <TrendingUp className="h-10 w-10 text-orange-500 mx-auto mb-3" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  当前{currentLevelName}任务已全部完成
+                </h3>
+                <p className="text-sm text-gray-600 mb-1">
+                  下一等级：<span className="font-semibold text-orange-600">{LEVEL_NAMES[upgradeData.nextLevel] || upgradeData.nextLevel}</span>
+                </p>
+                <p className="text-xs text-gray-400 mb-5">
+                  是否确认升级？确认后才会开放本级全部升级任务，请量力而行、谨慎选择。
+                </p>
+                <button
+                  onClick={async () => {
+                    setConfirmingUpgrade(true);
+                    try {
+                      const res = await apiConfirmNextLevel();
+                      setUpgradeData(res as UpgradeCenterInfo);
+                    } catch (e) {
+                      toast.error(getErrorMessage(e, '确认升级'));
+                    } finally {
+                      setConfirmingUpgrade(false);
+                    }
+                  }}
+                  disabled={confirmingUpgrade}
+                  className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-2.5 rounded-lg text-base font-semibold transition-colors inline-flex items-center gap-2 disabled:opacity-50"
+                >
+                  {confirmingUpgrade ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      正在开放任务...
+                    </>
+                  ) : (
+                    <>
+                      <Crown className="h-4 w-4" />
+                      我要升级到{LEVEL_NAMES[upgradeData.nextLevel] || upgradeData.nextLevel}
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (user as any)?.level === 'level_9' ? (
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-6 text-center">
+                <Crown className="h-12 w-12 text-amber-500 mx-auto mb-2" />
+                <div className="text-lg font-semibold text-amber-800">恭喜，您已是最高等级！</div>
+                <div className="text-sm text-amber-600 mt-1">
+                  当前等级：{currentLevelName}（第{currentLayer}层）
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border border-orange-200 rounded-xl p-6 text-center">
+                <RefreshCw className="h-10 w-10 text-orange-500 mx-auto mb-3" />
+                <div className="text-base font-semibold text-gray-900 mb-1">任务未正常加载</div>
+                <div className="text-sm text-gray-500 mb-4">您的升级任务没有显示出来，请点下方按钮重新加载（不影响账号与已有进度）</div>
+                <button
+                  onClick={() => fetchUpgradeData(false)}
+                  className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  重新加载任务
+                </button>
+              </div>
+            )
           ) : (
             <>
-              {/* 身份证未上传提示 */}
-              {!user?.idCardFrontUrl && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                      <CreditCard className="h-4 w-4 text-red-500" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-red-700">请先完成实名认证</p>
-                      <p className="text-xs text-red-600 mt-1">
-                        升级任务需要完成实名认证（上传身份证正面）。上传后系统将自动识别身份信息。
-                      </p>
-                      <button
-                        onClick={() => navigate('/profile')}
-                        className="mt-2 text-xs text-red-600 hover:text-red-700 underline font-medium"
-                      >
-                        前往实名认证 →
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {/* 升级进度 */}
+{/* 升级进度 */}
               <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700">
@@ -787,11 +883,15 @@ function TaskCenterPage() {
               {upgradeData.tasks.map((task: UpgradeTaskInfo, index: number) => {
                 const isCompleted = task.status === TASK_STATUS.COMPLETED;
                 const isInProgress = task.status === TASK_STATUS.IN_PROGRESS;
+                const isSubmitted = task.status === TASK_STATUS.SUBMITTED;
                 const isPending = task.status === TASK_STATUS.PENDING;
                 const isMall = task.taskType === TASK_TYPE.MALL_PURCHASE;
-                const prevTask = index > 0 ? upgradeData.tasks[index - 1] : null;
-                const canStart =
-                  isPending && (!prevTask || prevTask.status === TASK_STATUS.COMPLETED);
+                // 并行任务：所有待开始任务均可直接开始，无需等待前一任务
+                // 但未进树（团队位置未锁定）时，上级类任务先锁定，进树后自动解锁
+                const isTreeLocked = !!upgradeData.treeLocked;
+                const isLocked =
+                  isPending && isTreeLocked && !isMall && task.taskIndex >= 2;
+                const canStart = isPending && !isLocked;
 
                 return (
                   <div
@@ -799,9 +899,11 @@ function TaskCenterPage() {
                     className={`bg-white rounded-xl border p-4 shadow-sm transition-all ${
                       isCompleted
                         ? 'border-green-100 opacity-75'
-                        : isInProgress
-                          ? 'border-orange-200 ring-1 ring-orange-100'
-                          : 'border-gray-100'
+                        : isSubmitted
+                          ? 'border-blue-200 ring-1 ring-blue-100'
+                          : isInProgress
+                            ? 'border-orange-200 ring-1 ring-orange-100'
+                            : 'border-gray-100'
                     }`}
                   >
                     <div className="flex items-start gap-3">
@@ -809,12 +911,14 @@ function TaskCenterPage() {
                         className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
                           isCompleted
                             ? 'bg-green-100 text-green-600'
-                            : isInProgress
-                              ? 'bg-orange-100 text-orange-600'
-                              : 'bg-gray-100 text-gray-500'
+                            : isSubmitted
+                              ? 'bg-blue-100 text-blue-600'
+                              : isInProgress
+                                ? 'bg-orange-100 text-orange-600'
+                                : 'bg-gray-100 text-gray-500'
                         }`}
                       >
-                        {isCompleted ? <CheckCircle className="h-5 w-5" /> : task.taskIndex}
+                        {isCompleted ? <CheckCircle className="h-5 w-5" /> : isSubmitted ? <Clock className="h-4 w-4" /> : task.taskIndex}
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -824,12 +928,14 @@ function TaskCenterPage() {
                             className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
                               isCompleted
                                 ? 'bg-green-50 text-green-600'
-                                : isInProgress
-                                  ? 'bg-orange-50 text-orange-600'
-                                  : 'bg-gray-100 text-gray-500'
+                                : isSubmitted
+                                  ? 'bg-blue-50 text-blue-600'
+                                  : isInProgress
+                                    ? 'bg-orange-50 text-orange-600'
+                                    : 'bg-gray-100 text-gray-500'
                             }`}
                           >
-                            {isCompleted ? '已完成' : isInProgress ? '进行中' : '待开始'}
+                            {isCompleted ? '已完成' : isSubmitted ? '待审核' : isInProgress ? '进行中' : isLocked ? '待解锁' : '待开始'}
                           </span>
                         </div>
 
@@ -858,6 +964,17 @@ function TaskCenterPage() {
                         )}
 
                         <div className="mt-3">
+                          {isLocked && (
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-start gap-2">
+                              <Lock className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-sm text-gray-600 font-medium">团队位置锁定后自动解锁</p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  请先完成「商城购买」任务并上传付款截图，系统确定团队位置后，向上级付款的任务会自动解锁，无需手动开始。
+                                </p>
+                              </div>
+                            </div>
+                          )}
                           {isPending && canStart && (
                             <button
                               onClick={() => handleStart(task)}
@@ -877,33 +994,90 @@ function TaskCenterPage() {
                               )}
                             </button>
                           )}
-                          {isPending && !canStart && (
-                            <span className="text-xs text-gray-400">请先完成前置任务</span>
-                          )}
-                          {isInProgress && isMall && (
-                            <div className="flex flex-col gap-2">
-                              {/* 检查是否已经有商城订单待审核/待发货/已发货 */}
-                              {myMallOrders.length > 0 ? (
+                          {isSubmitted && (() => {
+                            const order: any = isMall
+                              ? myMallOrders.find((o) => Number(o.totalAmount) >= Number(task.amount))
+                              : myOrders.find((o) => o.taskId === task.id);
+                            const deadline = order?.autoConfirmDeadline || getAutoConfirmDeadline(order?.createdAt);
+                            const countdown = formatCountdown(deadline);
+                            return (
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <p className="text-sm text-blue-700 font-medium flex items-center gap-1">
+                                  <Clock className="h-4 w-4" />
+                                  付款凭证已上传，等待{isMall ? '平台' : '上级'}审核
+                                </p>
+                                <p className="text-xs text-blue-600 mt-1">
+                                  审核通过后任务自动完成；您无需等待，可继续做下一个任务。
+                                </p>
+                                {countdown && (
+                                  <p className="text-xs text-orange-600 mt-1 font-medium">
+                                    {countdown}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {isInProgress && isMall && (() => {
+                            // 当前任务相关的活跃商城订单：优先待付款单，其次金额匹配单
+                            const order: any =
+                              myMallOrders.find((o) => o.status === 'pending_payment') ||
+                              myMallOrders.find((o) => Number(o.totalAmount) >= Number(task.amount));
+                            // 1) 订单已创建、待付款 → 去付款（打开同一订单，绝不新建）
+                            if (order?.status === 'pending_payment') {
+                              return (
+                                <div className="flex flex-col gap-2">
+                                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                                    <p className="text-sm text-orange-700 font-medium flex items-center gap-1">
+                                      <Clock className="h-4 w-4" />
+                                      订单已创建（订单号：{order.orderNo}），请尽快付款
+                                    </p>
+                                    <p className="text-xs text-orange-600 mt-1">
+                                      点下方按钮扫码支付并上传付款截图；在完成付款前不能再次拍下商品。
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => navigate(`/order-confirm/${order.productId}?orderId=${order.id}&fromTask=1`)}
+                                    className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 w-fit"
+                                  >
+                                    <CreditCard className="h-4 w-4" />
+                                    去付款 ¥{task.amount}
+                                  </button>
+                                </div>
+                              );
+                            }
+                            // 2) 已传凭证：待审核 / 待发货 / 待收货
+                            if (order && ['pending_review', 'pending_shipment', 'pending_delivery'].includes(order.status)) {
+                              const mallStatusMap: Record<string, string> = {
+                                pending_review: '付款凭证已上传，等待卖家确认收款',
+                                pending_shipment: '卖家已收款，待发货',
+                                pending_delivery: '卖家已发货，待收货（可在我的订单确认收货）',
+                              };
+                              const deadline = order.autoConfirmDeadline || getAutoConfirmDeadline(order.createdAt);
+                              const countdown = formatCountdown(deadline);
+                              return (
                                 <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                                   <p className="text-sm text-green-700 font-medium flex items-center gap-1">
                                     <CheckCircle className="h-4 w-4" />
-                                    已购买成功，请等待平台审核
+                                    {mallStatusMap[order.status]}
                                   </p>
-                                  <p className="text-xs text-green-600 mt-1">
-                                    付款截图已上传，平台审核后任务自动完成。
-                                  </p>
-                                  {(() => {
-                                    const order = myMallOrders[0];
-                                    const deadline = order?.autoConfirmDeadline || getAutoConfirmDeadline(order?.createdAt);
-                                    const countdown = formatCountdown(deadline);
-                                    return countdown ? (
-                                      <p className="text-xs text-orange-600 mt-1 font-medium">
-                                        ⏱ {countdown}
-                                      </p>
-                                    ) : null;
-                                  })()}
+                                  {order.status === 'pending_review' && (
+                                    <p className="text-xs text-green-600 mt-1">您无需等待审核，可继续做下一个任务。</p>
+                                  )}
+                                  {countdown && (
+                                    <p className="text-xs text-orange-600 mt-1 font-medium">{countdown}</p>
+                                  )}
+                                  <button
+                                    onClick={() => navigate('/my-orders')}
+                                    className="text-xs text-orange-500 hover:text-orange-600 underline w-fit mt-1"
+                                  >
+                                    查看我的订单 →
+                                  </button>
                                 </div>
-                              ) : (
+                              );
+                            }
+                            // 3) 尚无订单 → 去商城购买
+                            return (
+                              <div className="flex flex-col gap-2">
                                 <button
                                   onClick={() => navigate(`/mall?taskAmount=${task.amount}&taskId=${task.id}`)}
                                   className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1 w-fit"
@@ -911,16 +1085,10 @@ function TaskCenterPage() {
                                   <ShoppingCart className="h-4 w-4" />
                                   去商城购买¥{task.amount}
                                 </button>
-                              )}
-                              <button
-                                onClick={() => navigate('/my-orders')}
-                                className="text-xs text-orange-500 hover:text-orange-600 underline w-fit"
-                              >
-                                查看我的订单 →
-                              </button>
-                              <span className="text-xs text-gray-400">购买后上传付款截图，等待平台审核</span>
-                            </div>
-                          )}
+                                <span className="text-xs text-gray-400">购买后上传付款截图；拍下未付款前不能再次拍下商品</span>
+                              </div>
+                            );
+                          })()}
                           {isInProgress && !isMall && (
                             <div className="flex flex-col gap-2">
                               {task.targetId ? (
@@ -1105,7 +1273,7 @@ function TaskCenterPage() {
                   {order.autoConfirmDeadline && (
                     <div className="text-xs text-gray-400 mb-3 flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      20分钟未审核将自动确认，截止：
+                      3分钟未审核将自动确认，截止：
                       {new Date(order.autoConfirmDeadline).toLocaleTimeString()}
                     </div>
                   )}
@@ -1226,6 +1394,7 @@ function TaskCenterPage() {
         </div>
       )}
     </div>
+    </PullToRefresh>
   );
 }
 

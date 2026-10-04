@@ -30,21 +30,20 @@ const LoginPage = () => {
       navigate('/');
     } catch (err: unknown) {
       logger.error('登录失败', err);
-      const e = err as {
-        response?: { status?: number; data?: { message?: string } };
-        message?: string;
-      };
-      let msg: string;
-      if (e?.response?.data?.message) {
-        // 后端业务错误（如手机号或密码错误）
-        msg = e.response.data.message;
-      } else if (e?.response?.status) {
-        msg = `登录失败（错误码 ${e.response.status}），请稍后重试`;
+      const anyErr = err as any;
+      // 仅当请求未到达服务器（无响应）才算网络问题；
+      // 服务器有响应但未放行，读后端返回的具体 message
+      if (!anyErr?.response) {
+        setError('网络连接失败：请检查手机是否联网（可切换 Wi-Fi/流量）；确认网络正常后仍无法登录，请联系您的咨询师找管理员重置');
       } else {
-        // 无响应 = 网络层 / 跨域 / 服务器不可达
-        msg = '无法连接服务器（网络错误），请检查网络或切换 Wi-Fi/流量后重试';
+        // 后端错误格式 {error:{message:"..."}}
+        const apiMsg = anyErr?.response?.data?.error?.message || anyErr?.response?.data?.message;
+        if (apiMsg && typeof apiMsg === 'string') {
+          setError(apiMsg);
+        } else {
+          setError('请确认手机号和密码无误；若仍无法登录，可能是系统检测到您的密码有安全问题，请联系您的咨询师找管理员重置');
+        }
       }
-      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -119,7 +118,7 @@ const LoginPage = () => {
 
             <div className="flex justify-end -mt-2">
               <Link
-                to="/forgot-password"
+                to="/forgot"
                 className="text-sm text-orange-600 hover:text-orange-700 font-medium"
               >
                 忘记密码？

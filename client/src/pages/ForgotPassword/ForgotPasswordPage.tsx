@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Phone, Lock, HelpCircle, AlertCircle, CheckCircle } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import axiosForBackend from '@client/src/lib/lark-shim';
+import { getErrorMessage } from '@client/src/utils/errorMessage';
 
 const ForgotPasswordPage = () => {
   const navigate = useNavigate();
@@ -39,12 +40,7 @@ const ForgotPasswordPage = () => {
       }
     } catch (err: unknown) {
       logger.error('获取安全问题失败', err);
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response
-              ?.data?.message || '获取安全问题失败'
-          : '获取安全问题失败';
-      setError(msg);
+      setError(getErrorMessage(err, '获取安全问题'));
     } finally {
       setLoading(false);
     }
@@ -71,18 +67,13 @@ const ForgotPasswordPage = () => {
       await axiosForBackend({
         url: '/api/auth/reset-password-by-security',
         method: 'POST',
-        data: { phone, securityAnswer, newPassword },
+        data: { phone, securityAnswer, newPassword: newPassword.trim() },
       });
       setStep(3);
       setSuccess(true);
     } catch (err: unknown) {
       logger.error('重置密码失败', err);
-      const msg =
-        err && typeof err === 'object' && 'response' in err
-          ? (err as { response?: { data?: { message?: string } } }).response
-              ?.data?.message || '重置密码失败'
-          : '重置密码失败';
-      setError(msg);
+      setError(getErrorMessage(err, '重置密码'));
     } finally {
       setLoading(false);
     }

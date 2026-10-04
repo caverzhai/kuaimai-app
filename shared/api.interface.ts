@@ -36,9 +36,22 @@ export interface UserInfo {
   thresholdTriggeredAt?: string;
   pendingReclaimAmount: string;
   overflowLossAmount: string;
+  permanentLossAmount?: string; // 永久流失（级别不够，收不回）
   directInviteCount: number;
   teamTotalCount: number;
   treeLevel: number;
+  // 四星60天考核
+  assessmentStatus?: string; // none/collecting/passed/eliminated
+  fourStarAt?: string;
+  platformCollectedAmount?: string;
+  refundRate?: number;
+  refundedAmount?: string;
+  refundStatus?: string; // none/pending/confirmed
+  // 分身顶替
+  isClone?: boolean;
+  cloneOfId?: string;
+  replacementForId?: string;
+  cloneEligible?: boolean;
   createdAt: string;
 }
 
@@ -48,6 +61,8 @@ export interface UserRegisterDTO {
   password: string;
   avatarUrl?: string;
   inviteCode?: string;
+  securityQuestion?: string;
+  securityAnswer?: string;
 }
 
 export interface UserLoginDTO {
@@ -73,6 +88,8 @@ export interface ProductInfo {
   sortOrder: number;
   sellerId?: string;
   sellerName?: string;
+  promotionFeeRate?: string;
+  sales?: number;
   createdAt: string;
 }
 
@@ -155,6 +172,8 @@ export interface ConsultOrderInfo {
   reviewRemark?: string;
   isOverflow: boolean;
   overflowToGroup: boolean;
+  isLevelShortfall?: boolean; // 级别不够，钱归平台
+  originalConsultantId?: string; // 原始收款人
   autoConfirmDeadline?: string;
   autoDeliveryDeadline?: string;
   createdAt: string;
@@ -187,6 +206,7 @@ export interface ConsultantInfo {
   qualification?: string;
   serviceStandard?: string;
   directInviteCount: number;
+  platformCollecting?: boolean;
 }
 
 export interface ConsultantListQuery {
@@ -225,6 +245,12 @@ export interface UpgradeCenterInfo {
   currentLevel: string;
   nextLevel?: string;
   tasks: UpgradeTaskInfo[];
+  /** true=已完成上一级、等待本人点击"我要升级"后才开放本级任务 */
+  needConfirmUpgrade?: boolean;
+  /** true=尚未绑定邀请人，必须先补绑邀请人，绑定前不生成/不开放任何任务 */
+  needBindInviter?: boolean;
+  /** true=尚未进树（团队位置未锁定），上级类任务暂不开放；完成商城购买、上传付款凭证进树后自动解锁 */
+  treeLocked?: boolean;
 }
 
 export interface TeamTreeNode {
@@ -415,6 +441,7 @@ export const CONSULT_ORDER_STATUS_NAMES: Record<string, string> = {
 export const TASK_STATUS = {
   PENDING: 'pending',
   IN_PROGRESS: 'in_progress',
+  SUBMITTED: 'submitted',
   COMPLETED: 'completed',
 } as const;
 

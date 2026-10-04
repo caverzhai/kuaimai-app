@@ -12,17 +12,43 @@ import {
 } from 'lucide-react';
 import { logger } from '@lark-apaas/client-toolkit/logger';
 import { getProductDetail } from '../../api';
+import { getPendingOrder } from '@client/src/utils/pendingOrder';
+import { useAuth } from '../../contexts/AuthContext';
+import { getErrorMessage } from '../../utils/errorMessage';
 import type { ProductInfo } from '@shared/api.interface';
 import { Image } from '@client/src/components/ui/image';
 
 export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [product, setProduct] = useState<ProductInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
+  // 是否为当前用户自己上架的商品（卖家不能购买自己的商品）
+  const isOwnProduct = !!user && !!product && (product as any).sellerId === user.id;
+  // 是否存在待付款订单（有则必须先付款，不能再下单）
+  const [hasPendingOrder, setHasPendingOrder] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setHasPendingOrder(false);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const p = await getPendingOrder();
+        if (alive) setHasPendingOrder(!!p);
+      } catch {
+        if (alive) setHasPendingOrder(false);
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => {
     if (!id) return;
@@ -39,7 +65,7 @@ export default function ProductDetailPage() {
       setProduct(data);
     } catch (err) {
       logger.error('获取商品详情失败', err);
-      setError('加载失败，请稍后重试');
+      setError(getErrorMessage(err, '加载商品详情'));
     } finally {
       setLoading(false);
     }
@@ -67,6 +93,11 @@ export default function ProductDetailPage() {
 
   function handleBuyNow() {
     if (!id) return;
+    if (isOwnProduct) return;
+    if (hasPendingOrder) {
+      navigate('/my-orders');
+      return;
+    }
     navigate(`/order-confirm/${id}?quantity=${quantity}`);
   }
 
@@ -299,9 +330,20 @@ export default function ProductDetailPage() {
           </button>
           <button
             onClick={handleBuyNow}
-            className="flex-1 h-11 bg-gradient-to-r from-orange-500 to-orange-400 text-white font-semibold rounded-full shadow-sm hover:shadow-md active:scale-[0.98] transition-all"
+            disabled={isOwnProduct}
+            className={`flex-1 h-11 font-semibold rounded-full transition-all ${
+              isOwnProduct
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : hasPendingOrder
+                  ? 'bg-gray-500 text-white active:scale-[0.98]'
+                  : 'bg-gradient-to-r from-orange-500 to-orange-400 text-white shadow-sm hover:shadow-md active:scale-[0.98]'
+            }`}
           >
-            立即购买
+            {isOwnProduct
+              ? '这是您上架的商品，不能购买'
+              : hasPendingOrder
+                ? '您有待付款订单，点此去付款'
+                : '立即购买'}
           </button>
         </div>
       </div>

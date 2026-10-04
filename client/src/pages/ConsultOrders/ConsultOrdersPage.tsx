@@ -10,7 +10,9 @@ import {
   FileText,
   ClipboardCheck,
 } from 'lucide-react';
+import { ImageUploadButtons } from '@client/src/components/ImageUploadButtons';
 import { logger } from '@lark-apaas/client-toolkit/logger';
+import { useVisiblePolling } from '@/hooks/useVisiblePolling';
 import { Image } from '@/components/ui/image';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,11 +24,13 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getMyConsultOrders,
+  getReceivedConsultOrders,
   uploadConsultPayment,
   confirmConsultPayment,
   getConsultantDetail,
 } from '../../api';
 import { uploadImageToServer } from '../../utils/imageUpload';
+import { getErrorMessage } from '../../utils/errorMessage';
 import type { ConsultOrderInfo, ConsultOrderListResponse, UserInfo } from '@shared/api.interface';
 import { CONSULT_ORDER_STATUS, CONSULT_ORDER_STATUS_NAMES, LEVEL_LAYERS } from '@shared/api.interface';
 
@@ -257,8 +261,8 @@ export default function ConsultOrdersPage() {
   const [uploaded, setUploaded] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
+  const fetchOrders = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const params: Record<string, unknown> = {
@@ -267,10 +271,14 @@ export default function ConsultOrdersPage() {
         pageSize: 50,
       };
       if (status) params.status = status;
-      const data = (await getMyConsultOrders(params)) as ConsultOrderListResponse;
+      // 按视角请求不同端点：我购买的→/my（回填咨询师）；我收到的→/received（回填学员）
+      const data =
+        mode === 'consultant'
+          ? ((await getReceivedConsultOrders(params)) as ConsultOrderListResponse)
+          : ((await getMyConsultOrders(params)) as ConsultOrderListResponse);
       setOrders(data.items);
     } catch (err) {
-      setError('加载订单列表失败，请稍后重试');
+      setError(getErrorMessage(err, '加载咨询订单'));
       logger.error('加载咨询订单失败', err);
     } finally {
       setLoading(false);
@@ -280,6 +288,12 @@ export default function ConsultOrdersPage() {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
+
+  // 自动刷新：前台每15秒静默拉取，新订单自动出现，无需手动切换或刷新
+  useVisiblePolling({
+    intervalMs: 15000,
+    onPoll: () => fetchOrders(true),
+  });
 
   const handlePay = async (order: ConsultOrderInfo) => {
     setCurrentOrder(order);
@@ -305,12 +319,11 @@ export default function ConsultOrdersPage() {
       await fetchOrders();
     } catch (err) {
       logger.error('确认收款失败', err);
-      toast('确认收款失败，请稍后重试');
+      toast(getErrorMessage(err, '确认收款'));
     }
   };
 
-  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileSelected = async (file: File) => {
     if (!file || !currentOrder) return;
     setUploading(true);
     setDialogError(null);
@@ -321,11 +334,10 @@ export default function ConsultOrdersPage() {
       setUploaded(true);
       fetchOrders();
     } catch (err) {
-      setDialogError('上传失败，请稍后重试');
+      setDialogError(getErrorMessage(err, '上传付款凭证'));
       logger.error('上传失败', err);
     } finally {
       setUploading(false);
-      if (e.target) e.target.value = '';
     }
   };
 
@@ -477,31 +489,10 @@ export default function ConsultOrdersPage() {
                       {dialogError}
                     </p>
                   )}
-                  <Button
-                    onClick={() =>
-                      document.getElementById('consult-order-file-input')?.click()
-                    }
-                    disabled={uploading}
-                    className="w-full h-11 bg-orange-500 hover:bg-orange-600 text-white"
-                  >
-                    {uploading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        上传中...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="w-4 h-4 mr-2" />
-                        选择图片上传
-                      </>
-                    )}
-                  </Button>
-                  <input
-                    id="consult-order-file-input"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleUploadFile}
-                    className="hidden"
+                  <ImageUploadButtons
+                    onFileSelected={handleFileSelected}
+                    uploading={uploading}
+                    label="选择图片上传"
                   />
                 </>
               ) : (

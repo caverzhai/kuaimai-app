@@ -13,17 +13,22 @@ import {
   Loader2,
   RefreshCw,
   User,
+  Wallet,
+  TrendingUp,
 } from 'lucide-react';
 import { Image } from '@client/src/components/ui/image';
+import { getErrorMessage } from '../../utils/errorMessage';
+import { getDownlineDetails } from '../../api/stats';
 
 interface TeamNodeProps {
   node: TeamTreeNode;
   depth: number;
   isLast: boolean;
   isRoot?: boolean;
+  maxDepth: number; // 卖家=9（思维导图开放到下9代），非卖家=5（维持现状）
 }
 
-function TeamNode({ node, depth, isLast, isRoot }: TeamNodeProps) {
+function TeamNode({ node, depth, isLast, isRoot, maxDepth }: TeamNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children && node.children.length > 0;
   const levelName = LEVEL_NAMES[node.level] || node.level;
@@ -31,7 +36,12 @@ function TeamNode({ node, depth, isLast, isRoot }: TeamNodeProps) {
   // 第5级及以上（depth >= 5）只显示人数，不显示姓名
   const isCollapsedLevel = depth >= 5;
 
+  // 超过该用户可见的最大深度：截断不渲染
+  if (depth > maxDepth) return null;
+
   if (isCollapsedLevel) {
+    // 本支人数（含该成员自己及其全部后代），避免最后一代显示 0
+    const branchTotal = 1 + (node.descendantCount ?? 0);
     return (
       <div className="relative">
         {!isRoot && (
@@ -47,14 +57,41 @@ function TeamNode({ node, depth, isLast, isRoot }: TeamNodeProps) {
           {!isRoot && (
             <div className="w-3 h-px bg-gray-200 flex-shrink-0" />
           )}
-          <div className="w-5 flex-shrink-0" />
+          {hasChildren && depth < maxDepth ? (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-orange-500 transition-colors flex-shrink-0"
+            >
+              {expanded ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+          ) : (
+            <div className="w-5 flex-shrink-0" />
+          )}
           <div className="flex items-center gap-2 flex-1 bg-gray-50 rounded-lg border border-gray-100 px-3 py-2">
             <Users className="h-4 w-4 text-gray-400 flex-shrink-0" />
             <span className="text-sm text-gray-500">
-              第{depth}级下级 · 共 {node.descendantCount ?? node.children.length} 人
+              第{depth}代下级 · 本支 {branchTotal} 人
             </span>
           </div>
         </div>
+        {/* 卖家：折叠层继续递归，直到第 maxDepth 代；非卖家 maxDepth=5，此处不递归即维持现状 */}
+        {hasChildren && depth < maxDepth && expanded && (
+          <div>
+            {node.children.map((child: TeamTreeNode, idx: number) => (
+              <TeamNode
+                key={child.userId}
+                node={child}
+                depth={depth + 1}
+                isLast={idx === node.children.length - 1}
+                maxDepth={maxDepth}
+              />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -137,7 +174,79 @@ function TeamNode({ node, depth, isLast, isRoot }: TeamNodeProps) {
               node={child}
               depth={depth + 1}
               isLast={idx === node.children.length - 1}
+              maxDepth={maxDepth}
             />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 树下某代会员详情（折叠）：直邀人数、团队人数、总收入
+function DownlineLevelBlock({
+  depth,
+  members,
+}: {
+  depth: number;
+  members: any[];
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-gray-100 last:border-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between py-3 text-sm"
+      >
+        <span className="font-medium text-gray-800">
+          下{depth}代（{members.length}人）
+        </span>
+        {open ? (
+          <ChevronDown className="h-4 w-4 text-gray-400" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-gray-400" />
+        )}
+      </button>
+      {open && (
+        <div className="pb-3 space-y-2">
+          {members.length === 0 && (
+            <p className="text-xs text-gray-400 py-1">暂无成员</p>
+          )}
+          {members.map((m) => (
+            <div
+              key={m.userId}
+              className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2"
+            >
+              <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                {m.avatarUrl ? (
+                  <Image
+                    src={m.avatarUrl}
+                    alt={m.nickname}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="h-4 w-4 text-orange-500" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-gray-900 truncate">
+                  {m.nickname || '未命名'}
+                  <span className="ml-1 text-xs text-orange-500">
+                    {LEVEL_NAMES[m.level] ?? '初级'}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-400">{m.phone}</div>
+              </div>
+              <div className="text-right text-xs text-gray-500 flex-shrink-0">
+                <div>
+                  直邀 {m.directInviteCount} · 团队 {m.teamCount}人
+                </div>
+                <div>个人 ¥{m.totalIncome.toFixed(0)}</div>
+                <div className="text-orange-600 font-semibold">
+                  团队 ¥{m.teamIncome.toFixed(0)}
+                </div>
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -151,10 +260,23 @@ export default function MyTeamPage() {
   const [data, setData] = useState<TeamInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 树下五层会员详情
+  const [downline, setDownline] = useState<any>(null);
 
   useEffect(() => {
     if (authLoading || !user) return;
     fetchData();
+  }, [authLoading, user]);
+
+  useEffect(() => {
+    if (authLoading || !user?.isInvited) return;
+    (async () => {
+      try {
+        setDownline(await getDownlineDetails(5));
+      } catch (e) {
+        logger.error('获取树下五层详情失败', e);
+      }
+    })();
   }, [authLoading, user]);
 
   async function fetchData() {
@@ -165,7 +287,7 @@ export default function MyTeamPage() {
       setData(result as TeamInfo);
     } catch (err) {
       logger.error('获取团队数据失败', err);
-      setError('加载失败，请稍后重试');
+      setError(getErrorMessage(err, '加载团队关系树'));
     } finally {
       setLoading(false);
     }
@@ -262,7 +384,7 @@ export default function MyTeamPage() {
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-2">
             <UserPlus className="h-4 w-4 text-orange-500" />
-            直推人数
+            有效直推人数
           </div>
           <div className="text-2xl font-bold text-gray-900">
             {data.directInviteCount}
@@ -277,6 +399,24 @@ export default function MyTeamPage() {
             {data.teamTotalCount}
           </div>
         </div>
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2 text-gray-500 text-sm mb-2">
+            <Wallet className="h-4 w-4 text-orange-500" />
+            个人总收入
+          </div>
+          <div className="text-2xl font-bold text-gray-900">
+            ¥{(downline?.self?.totalIncome ?? 0).toFixed(0)}
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2 text-gray-500 text-sm mb-2">
+            <TrendingUp className="h-4 w-4 text-orange-500" />
+            团队总收入
+          </div>
+          <div className="text-2xl font-bold text-orange-600">
+            ¥{(downline?.self?.teamIncome ?? 0).toFixed(0)}
+          </div>
+        </div>
       </div>
 
       {/* 团队树 */}
@@ -287,11 +427,33 @@ export default function MyTeamPage() {
         </h2>
 
         {data.tree ? (
-          <TeamNode node={data.tree} depth={0} isLast={true} isRoot={true} />
+          <TeamNode node={data.tree} depth={0} isLast={true} isRoot={true} maxDepth={user.isSeller ? 9 : 5} />
         ) : (
           <div className="text-center py-12 text-gray-400">
             暂无团队数据
           </div>
+        )}
+      </div>
+
+      {/* 树下五层会员详情 */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-2">
+          <Wallet className="h-5 w-5 text-orange-500" />
+          树下五层会员详情
+        </h2>
+        <p className="text-xs text-gray-500 mb-2">
+          下1～下5代每位会员的有效直邀、团队人数，以及个人与团队实际到账总收入，点击各代展开。
+        </p>
+        {downline ? (
+          (downline.levels ?? []).map((lv: any) => (
+            <DownlineLevelBlock
+              key={lv.depth}
+              depth={lv.depth}
+              members={lv.members}
+            />
+          ))
+        ) : (
+          <p className="text-sm text-gray-400 py-4 text-center">加载中...</p>
         )}
       </div>
     </div>

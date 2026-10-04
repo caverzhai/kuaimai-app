@@ -2,15 +2,19 @@ package com.kuaimai.app;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.Manifest;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Toast;
 
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import com.getcapacitor.BridgeActivity;
@@ -27,6 +31,8 @@ import java.net.URL;
 public class MainActivity extends BridgeActivity {
 
     private boolean appUpdateInjected = false;
+    private static final int REQ_CAMERA = 1001;
+    private String pendingCameraCallback = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -36,8 +42,31 @@ public class MainActivity extends BridgeActivity {
         injectInterfacesWithRetry();
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+
+        // 收款服务原生层兜底：用户已开启则每次回前台直接确保运行
+        // （切号 / 服务被系统杀掉 / JS 桥未就绪等情况下，不依赖前端也能立即拉起）
+        try {
+            android.content.SharedPreferences sp =
+                getSharedPreferences(CollectMonitorService.PREFS, Context.MODE_PRIVATE);
+            boolean enabled = sp.getBoolean(CollectMonitorService.KEY_ENABLED, false);
+            String token = sp.getString(CollectMonitorService.KEY_TOKEN, null);
+            if (enabled && token != null && token.length() > 0) {
+                CollectMonitorService.start(MainActivity.this, token);
+            }
+        } catch (Exception ignored) {}
+
+        // 兜底：如果 onCreate 时注入失败（WebView 未就绪），回到前台时重试
+        if (!appUpdateInjected) {
+            android.util.Log.d("Kuaimai", "onResume 检测到原生接口未注入，重新尝试");
+            injectInterfacesWithRetry();
+        }
+    }
+
     /**
-     * 轮询注入原生接口，最多重试10次，每次间隔300ms
+     * 轮询原生接口注入，最多重试60次，每次间隔500ms（共30秒）
      */
     private void injectInterfacesWithRetry() {
         final int[] retryCount = {0};
@@ -69,6 +98,10 @@ public class MainActivity extends BridgeActivity {
                         webView.addJavascriptInterface(new HttpBridge(), "NativeHttp");
                         // 注册 APP 更新桥接接口
                         webView.addJavascriptInterface(new AppUpdateBridge(), "AppUpdate");
+                        // 注册权限请求桥接接口
+                        webView.addJavascriptInterface(new PermissionBridge(), "NativePermission");
+                        // 注册收款提醒前台服务桥接接口
+                        webView.addJavascriptInterface(new CollectBridge(), "CollectMonitor");
 
                         appUpdateInjected = true;
                         android.util.Log.d("Kuaimai", "原生接口注入成功，重试次数: " + retryCount[0]);
@@ -79,10 +112,10 @@ public class MainActivity extends BridgeActivity {
                 }
 
                 retryCount[0]++;
-                if (retryCount[0] < 15) {
-                    handler.postDelayed(this, 300);
+                if (retryCount[0] < 60) {
+                    handler.postDelayed(this, 500);
                 } else {
-                    android.util.Log.e("Kuaimai", "注入失败，已达最大重试次数");
+                    android.util.Log.e("Kuaimai", "注入失败，已达最大重试次数(60次/30秒)");
                 }
             }
         };
@@ -216,6 +249,60 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    /**
+     * 权限请求桥接接口
+     */
+    public class PermissionBridge {
+        @JavascriptInterface
+        public boolean hasCameraPermission() {
+            return ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
+                    == PackageManager.PERMISSION_GRANTED;
+        }
+
+        @JavascriptInterface
+        public void requestCameraPermission(final String callbackId) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
+                            == PackageManager.PERMISSION_GRANTED) {
+                        notifyPermissionResult(callbackId, true);
+                        return;
+                    }
+                    pendingCameraCallback = callbackId;
+                    ActivityCompat.requestPermissions(MainActivity.this,
+                            new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
+                }
+            });
+        }
+    }
+
+    private void notifyPermissionResult(final String callbackId, final boolean granted) {
+        final WebView wv = getBridge().getWebView();
+        if (wv == null) return;
+        wv.post(new Runnable() {
+            @Override
+            public void run() {
+                wv.evaluateJavascript(
+                        "window.__onNativePermissionResult && window.__onNativePermissionResult('"
+                                + callbackId + "'," + granted + ")", null);
+            }
+        });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_CAMERA) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (pendingCameraCallback != null) {
+                notifyPermissionResult(pendingCameraCallback, granted);
+                pendingCameraCallback = null;
+            }
+        }
+    }
+
     private void installApk(String filePath) {
         try {
             File apkFile = new File(filePath);
@@ -343,6 +430,188 @@ public class MainActivity extends BridgeActivity {
                     connection.disconnect();
                 }
             }
+        }
+    }
+
+    /**
+     * 收款提醒桥接接口：JavaScript 通过 window.CollectMonitor 调用
+     */
+    public class CollectBridge {
+        @JavascriptInterface
+        public void start(String token) {
+            CollectMonitorService.start(MainActivity.this, token);
+        }
+
+        @JavascriptInterface
+        public void stop() {
+            Intent i = new Intent(MainActivity.this, CollectMonitorService.class)
+                    .setAction(CollectMonitorService.ACTION_STOP);
+            startService(i);
+        }
+
+        @JavascriptInterface
+        public void clearAlerts() {
+            Intent i = new Intent(MainActivity.this, CollectMonitorService.class)
+                    .setAction(CollectMonitorService.ACTION_CLEAR);
+            startService(i);
+        }
+
+        // SSE 前台实时收款：JS 把通知 JSON 交给服务（ringed 去重后发声 / 震动 / 系统通知）
+        @JavascriptInterface
+        public void showNow(String json) {
+            CollectMonitorService.relayRealtime(MainActivity.this, json);
+        }
+
+        @JavascriptInterface
+        public boolean isEnabled() {
+            return getSharedPreferences(CollectMonitorService.PREFS, 0)
+                    .getBoolean(CollectMonitorService.KEY_ENABLED, false);
+        }
+
+        @JavascriptInterface
+        public void playTest() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    android.content.SharedPreferences sp =
+                        getSharedPreferences("kuaimai_collect", android.content.Context.MODE_PRIVATE);
+                    String custom = sp.getString("sound_uri", null);
+                    Uri s = (custom != null && custom.length() > 0)
+                        ? Uri.parse(custom)
+                        : Uri.parse("android.resource://" + getPackageName()
+                            + "/raw/ai_kuaimai_collect");
+                    android.media.Ringtone r = android.media.RingtoneManager.getRingtone(MainActivity.this, s);
+                    if (r != null) r.play();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean hasNotifyPermission() {
+            if (Build.VERSION.SDK_INT < 33) return true;
+            return ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS)
+                    == PackageManager.PERMISSION_GRANTED;
+        }
+
+        @JavascriptInterface
+        public void requestNotifyPermission() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        ActivityCompat.requestPermissions(MainActivity.this,
+                                new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2001);
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean isIgnoringBattery() {
+            if (Build.VERSION.SDK_INT < 23) return true;
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            return pm.isIgnoringBatteryOptimizations(getPackageName());
+        }
+
+        @JavascriptInterface
+        public void requestIgnoreBattery() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (Build.VERSION.SDK_INT < 23) return;
+                    android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+                    if (pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+                    try {
+                        Intent ii = new Intent(
+                                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:" + getPackageName()));
+                        startActivity(ii);
+                    } catch (Exception e) {
+                        try {
+                            startActivity(new Intent(
+                                    android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                        } catch (Exception ignored) {}
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void openAutoStart() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    String[][] list = new String[][]{
+                        {"com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"},
+                        {"com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"},
+                        {"com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"},
+                        {"com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity"},
+                        {"com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity"},
+                        {"com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"},
+                        {"com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"},
+                        {"com.meizu.safe", "com.meizu.safe.security.SHOW_APPSEC"},
+                        {"com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity"}
+                    };
+                    for (String[] item : list) {
+                        try {
+                            Intent ii = new Intent();
+                            ii.setClassName(item[0], item[1]);
+                            ii.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(ii);
+                            return;
+                        } catch (Exception ignored) {}
+                    }
+                    startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + getPackageName())));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean canUseFullScreen() {
+            if (Build.VERSION.SDK_INT < 34) return true;
+            try {
+                return ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE))
+                        .canUseFullScreenIntent();
+            } catch (Exception e) { return true; }
+        }
+
+        @JavascriptInterface
+        public void requestFullScreen() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (Build.VERSION.SDK_INT < 34) return;
+                    try {
+                        startActivity(new Intent(
+                            android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                            Uri.parse("package:" + getPackageName())));
+                    } catch (Exception e) {
+                        startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + getPackageName())));
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public boolean canScheduleExactAlarm() {
+            if (Build.VERSION.SDK_INT < 31) return true;
+            try {
+                return ((android.app.AlarmManager) getSystemService(ALARM_SERVICE)).canScheduleExactAlarms();
+            } catch (Exception e) { return true; }
+        }
+
+        @JavascriptInterface
+        public void requestExactAlarm() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (Build.VERSION.SDK_INT < 31) return;
+                    try {
+                        startActivity(new Intent(
+                            android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                            Uri.parse("package:" + getPackageName())));
+                    } catch (Exception e) {
+                        startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:" + getPackageName())));
+                    }
+                }
+            });
         }
     }
 }

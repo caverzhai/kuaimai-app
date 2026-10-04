@@ -5,6 +5,8 @@ import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBac
 import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import GlobalUpdateCheck from './components/GlobalUpdateCheck';
+import GlobalNotificationListener from './components/GlobalNotificationListener';
+import { useCollectReminder } from './hooks/useCollectReminder';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import SplashPage from './pages/Splash/SplashPage';
 import LoginPage from './pages/Login/LoginPage';
@@ -28,7 +30,21 @@ import ChatRoomDetailPage from './pages/ChatRoom/ChatRoomDetailPage';
 import SellerOrdersPage from './pages/Seller/SellerOrdersPage';
 import SellerFeesPage from './pages/Seller/SellerFeesPage';
 import ForgotPasswordPage from './pages/ForgotPassword/ForgotPasswordPage';
+import MeetingRoomPage from './pages/MeetingRoom/MeetingRoomPage';
+import IosInstallPage from './pages/IosInstall/IosInstallPage';
 import NotFound from './pages/NotFound/NotFound';
+
+// 收款提醒前台服务生命周期（登录启动 / 登出停止 / 回前台清角标）
+const CollectReminderGate = () => {
+  useCollectReminder();
+  return null;
+};
+
+// /mall 重定向到首页时保留查询参数（任务金额 taskAmount、taskId），避免任务筛选失效
+const MallIndexRedirect = () => {
+  const { search } = useLocation();
+  return <Navigate to={`/${search}`} replace />;
+};
 
 const RoutesComponent = () => {
   const navigate = useNavigate();
@@ -54,7 +70,9 @@ const RoutesComponent = () => {
   return (
     <ErrorBoundary>
       <GlobalUpdateCheck />
+      <GlobalNotificationListener />
       <AuthProvider>
+        <CollectReminderGate />
         <Routes>
           {/* 全屏页面（无Layout） */}
           <Route path="splash" element={<SplashPage />} />
@@ -62,11 +80,12 @@ const RoutesComponent = () => {
           <Route path="register" element={<RegisterPage />} />
           <Route path="forgot" element={<ForgotPasswordPage />} />
           <Route path="chat-room/:roomId" element={<ChatRoomDetailPage />} />
+          <Route path="meeting-room/:meetingId" element={<MeetingRoomPage />} />
 
           {/* 带顶部栏+底部Dock的主框架，Outlet渲染当前页面 */}
           <Route element={<Layout />}>
             <Route index element={<MallPage />} />
-            <Route path="mall" element={<Navigate to="/" replace />} />
+            <Route path="mall" element={<MallIndexRedirect />} />
             <Route path="chat-rooms" element={<ChatRoomListPage />} />
             <Route path="tasks" element={<TaskCenterPage />} />
             <Route path="upgrade" element={<TaskCenterPage />} />
@@ -84,6 +103,7 @@ const RoutesComponent = () => {
             <Route path="admin" element={<AdminPage />} />
             <Route path="seller/orders" element={<SellerOrdersPage />} />
             <Route path="seller/fees" element={<SellerFeesPage />} />
+            <Route path="ios-install" element={<IosInstallPage />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

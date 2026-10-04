@@ -21,6 +21,12 @@ import {
   adminDeleteChatRoom,
   getAdminManagementFees,
   confirmManagementFee,
+  getRefundList,
+  confirmRefund,
+  getNotificationsAll,
+  sendNotification,
+  getPlatformNotice,
+  updatePlatformNotice,
 } from '@client/src/api';
 import type {
   ProductInfo,
@@ -50,13 +56,20 @@ import {
   MessageCircle,
   Trash2,
   Wallet,
+  Bell,
+  Smartphone,
+  Megaphone,
+  Network,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getErrorMessage } from '../../utils/errorMessage';
 import { Image } from '@client/src/components/ui/image';
 import { ProductForm } from '@client/src/components/ProductForm';
+import AdminTeamTree from './AdminTeamTree';
+import IosDeviceAdmin from './IosDeviceAdmin';
 import { playNewTaskSound } from '@client/src/utils/notification-sound';
 
-type TabType = 'products' | 'mall-orders' | 'users' | 'company-audits' | 'consult-orders' | 'qrcodes' | 'chat-rooms' | 'management-fees';
+type TabType = 'products' | 'mall-orders' | 'users' | 'team-tree' | 'company-audits' | 'consult-orders' | 'qrcodes' | 'chat-rooms' | 'management-fees' | 'refunds' | 'notifications' | 'ios-devices';
 
 const AdminPage = () => {
   const [activeTab, setActiveTab] = useState<TabType>('products');
@@ -65,11 +78,26 @@ const AdminPage = () => {
   const [products, setProducts] = useState<ProductInfo[]>([]);
   const [mallOrders, setMallOrders] = useState<MallOrderInfo[]>([]);
   const [users, setUsers] = useState<UserInfo[]>([]);
+  const [userPage, setUserPage] = useState(1);
+  const [userTotal, setUserTotal] = useState(0);
+  const USER_PAGE_SIZE = 20;
   const [companyAudits, setCompanyAudits] = useState<UserInfo[]>([]);
   const [consultOrders, setConsultOrders] = useState<ConsultOrderInfo[]>([]);
   const [mallQrcode, setMallQrcode] = useState<PlatformQrcodeInfo | null>(null);
   const [chatRooms, setChatRooms] = useState<any[]>([]);
   const [managementFees, setManagementFees] = useState<any[]>([]);
+  const [refunds, setRefunds] = useState<any[]>([]);
+  const [sentNotifications, setSentNotifications] = useState<any[]>([]);
+  const [notifTarget, setNotifTarget] = useState<'all' | 'user'>('all');
+  const [notifType, setNotifType] = useState<'system' | 'update'>('update');
+  const [notifUserId, setNotifUserId] = useState('');
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifBody, setNotifBody] = useState('');
+  const [notifSubmitting, setNotifSubmitting] = useState(false);
+  const [noticeContent, setNoticeContent] = useState('');
+  const [noticeSaving, setNoticeSaving] = useState(false);
+  // 通知编辑态：编辑期间禁止定时刷新/服务器内容覆盖，避免正在编辑的内容丢失
+  const noticeEditingRef = useRef(false);
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductInfo | null>(null);
 
@@ -91,6 +119,7 @@ const AdminPage = () => {
   // 删除用户相关状态
   const [deletingUser, setDeletingUser] = useState<UserInfo | null>(null);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
 
   // 记录上一次待审核订单数量，用于新订单提示音
   const prevPendingReviewCountRef = useRef<number>(0);
@@ -111,10 +140,15 @@ const AdminPage = () => {
 
   useEffect(() => {
     loadTabData(activeTab);
+    if (activeTab === 'chat-rooms') {
+      getPlatformNotice()
+        .then((d: any) => { if (!noticeEditingRef.current) setNoticeContent(d?.content || ''); })
+        .catch(() => {});
+    }
     // 每30秒自动刷新当前tab数据（审核后台实时更新）
     // 编辑商品时暂停自动刷新，避免表单内容丢失
     const interval = setInterval(() => {
-      if (!showProductForm) {
+      if (!showProductForm && !noticeEditingRef.current) {
         loadTabData(activeTab);
       }
     }, 30000);
@@ -144,8 +178,9 @@ const AdminPage = () => {
           break;
         }
         case 'users': {
-          const data = await getAdminUsers({ page: 1, pageSize: 20 });
+          const data = await getAdminUsers({ page: userPage, pageSize: USER_PAGE_SIZE });
           setUsers(data.items || []);
+          setUserTotal(data.total || 0);
           break;
         }
         case 'company-audits': {
@@ -193,6 +228,16 @@ const AdminPage = () => {
           setManagementFees(data.items || []);
           break;
         }
+        case 'refunds': {
+          const data = await getRefundList();
+          setRefunds(Array.isArray(data) ? data : []);
+          break;
+        }
+        case 'notifications': {
+          const data = await getNotificationsAll();
+          setSentNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+          break;
+        }
       }
     } catch (error) {
       logger.error(`加载${tab}失败`, error);
@@ -201,15 +246,67 @@ const AdminPage = () => {
     }
   }
 
+  const fillUpdateTemplate = () => {
+    setNotifType('update');
+    setNotifTitle('AI快卖 版本更新提醒');
+    setNotifBody('系统已升级到最新版本，请点击本通知一键更新，体验更稳定的卖货与赚钱功能；如未自动弹出，请重新打开APP。');
+  };
+
+  const handleSendNotification = async () => {
+    if (!notifTitle.trim() || !notifBody.trim()) return;
+    if (notifTarget === 'user' && !notifUserId.trim()) {
+      toast.error('请填写指定用户ID');
+      return;
+    }
+    setNotifSubmitting(true);
+    try {
+      await sendNotification({
+        target: notifTarget,
+        userId: notifTarget === 'user' ? notifUserId.trim() : undefined,
+        title: notifTitle.trim(),
+        body: notifBody.trim(),
+        type: notifType,
+      });
+      toast.success('通知已发送');
+      setNotifTitle('');
+      setNotifBody('');
+      setNotifUserId('');
+      const data = await getNotificationsAll();
+      setSentNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+    } catch (error) {
+      logger.error('发送通知失败', error);
+      toast.error(getErrorMessage(error, '发送通知'));
+    } finally {
+      setNotifSubmitting(false);
+    }
+  };
+
+  const handleSaveNotice = async () => {
+    setNoticeSaving(true);
+    try {
+      await updatePlatformNotice(noticeContent);
+      noticeEditingRef.current = false;
+      toast.success('平台通知已保存');
+    } catch (error) {
+      toast.error(getErrorMessage(error, '保存平台通知'));
+    } finally {
+      setNoticeSaving(false);
+    }
+  };
+
   const tabs: { key: TabType; label: string; icon: typeof Package }[] = [
     { key: 'products', label: '商品管理', icon: Package },
     { key: 'mall-orders', label: '商城订单', icon: ShoppingCart },
     { key: 'users', label: '用户管理', icon: Users },
+    { key: 'team-tree', label: '全用户关系树', icon: Network },
     { key: 'company-audits', label: '公司审核', icon: FileCheck },
     { key: 'consult-orders', label: '咨询订单', icon: MessageSquare },
     { key: 'qrcodes', label: '收款码管理', icon: QrCode },
     { key: 'chat-rooms', label: '聊天室管理', icon: MessageCircle },
     { key: 'management-fees', label: '推广费审核', icon: Wallet },
+    { key: 'refunds', label: '返还打款', icon: Wallet },
+    { key: 'notifications', label: '通知推送', icon: Bell },
+    { key: 'ios-devices', label: '苹果设备', icon: Smartphone },
   ];
 
   async function handleReviewPayment(orderId: string, passed: boolean) {
@@ -218,7 +315,7 @@ const AdminPage = () => {
       loadTabData('mall-orders');
     } catch (error) {
       logger.error('审核失败', error);
-      toast('审核失败');
+      toast.error(getErrorMessage(error, '审核付款'));
     }
   }
 
@@ -249,7 +346,7 @@ const AdminPage = () => {
       loadTabData('mall-orders');
     } catch (error) {
       logger.error('发货失败', error);
-      toast('发货失败');
+      toast.error(getErrorMessage(error, '发货'));
     } finally {
       setShippingSubmitting(false);
     }
@@ -269,7 +366,7 @@ const AdminPage = () => {
       loadTabData('company-audits');
     } catch (error) {
       logger.error('审核失败', error);
-      toast('审核失败');
+      toast.error(getErrorMessage(error, '审核公司资质'));
     }
   }
 
@@ -280,7 +377,7 @@ const AdminPage = () => {
       loadTabData('consult-orders');
     } catch (error) {
       logger.error('确认收款失败', error);
-      toast('确认收款失败');
+      toast.error(getErrorMessage(error, '确认收款'));
     }
   }
 
@@ -293,7 +390,7 @@ const AdminPage = () => {
       loadTabData('consult-orders');
     } catch (error) {
       logger.error('审核作业失败', error);
-      toast('审核作业失败');
+      toast.error(getErrorMessage(error, '审核作业'));
     }
   }
 
@@ -319,8 +416,7 @@ const AdminPage = () => {
       setEditingPhoneUser(null);
       loadTabData('users');
     } catch (error: any) {
-      const msg = error?.response?.data?.message || '修改失败';
-      setPhoneError(msg);
+      setPhoneError(getErrorMessage(error, '修改手机号'));
       logger.error('修改手机号失败', error);
     } finally {
       setPhoneSubmitting(false);
@@ -328,6 +424,17 @@ const AdminPage = () => {
   }
 
   // 重置用户密码（用户忘记密码、无短信验证码时的兜底方案）
+  const loadUserPage = async (page: number) => {
+    try {
+      const data = await getAdminUsers({ page, pageSize: USER_PAGE_SIZE });
+      setUsers(data.items || []);
+      setUserTotal(data.total || 0);
+      setUserPage(page);
+    } catch (err) {
+      toast(getErrorMessage(err, '加载用户'));
+    }
+  };
+
   async function handleResetPassword(user: UserInfo) {
     const newPassword = window.prompt(
       `将为「${user.nickname}（${user.phone}）」重置密码。\n请输入新密码（至少6位）：`,
@@ -343,13 +450,17 @@ const AdminPage = () => {
       await axiosForBackend.post(`/api/admin/users/${user.id}/reset-password`, { newPassword });
       toast.success('密码已重置为：' + newPassword);
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || '重置失败');
+      toast.error(getErrorMessage(e, '重置密码'));
     }
   }
 
   // 删除用户
   async function handleDeleteUser() {
     if (!deletingUser) return;
+    if (!adminPassword) {
+      toast.error('请输入管理员密码');
+      return;
+    }
     setDeleteSubmitting(true);
     try {
       const response = await fetch('/api/admin/users/batch-delete', {
@@ -358,14 +469,18 @@ const AdminPage = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('kuaimai_token')}`,
         },
-        body: JSON.stringify({ keepPhones: ['13800000000'], deleteUserIds: [deletingUser.id] }),
+        body: JSON.stringify({ keepPhones: ['13800000000'], deleteUserIds: [deletingUser.id], adminPassword }),
       });
-      if (!response.ok) throw new Error('删除失败');
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.error?.message || '删除失败');
+      }
       toast('用户删除成功');
       setDeletingUser(null);
+      setAdminPassword('');
       loadTabData('users');
     } catch (error: any) {
-      toast(error?.message || '删除失败');
+      toast.error(getErrorMessage(error, '删除用户'));
       logger.error('删除用户失败', error);
     } finally {
       setDeleteSubmitting(false);
@@ -396,7 +511,7 @@ const AdminPage = () => {
       toast.success('商品已删除');
       loadTabData('products');
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || '删除失败');
+      toast.error(getErrorMessage(e, '删除商品'));
     }
   }
 
@@ -461,7 +576,7 @@ const AdminPage = () => {
       }
     } catch (error) {
       logger.error('更新收款码失败', error);
-      toast('更新失败，请重试');
+      toast.error(getErrorMessage(error, '更新收款码'));
     } finally {
       setQrcodeUploading(false);
       setQrcodeUploadTarget(null);
@@ -660,6 +775,9 @@ const AdminPage = () => {
               </div>
             )}
 
+            {activeTab === 'team-tree' && <AdminTeamTree />}
+            {activeTab === 'ios-devices' && <IosDeviceAdmin />}
+
             {activeTab === 'users' && (
               <div>
                 <h3 className="text-lg font-bold mb-4">用户管理</h3>
@@ -726,6 +844,29 @@ const AdminPage = () => {
                     ))
                   )}
                 </div>
+                {userTotal > USER_PAGE_SIZE && (
+                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                    <span className="text-xs text-gray-500">
+                      共 {userTotal} 人，第 {userPage} / {Math.ceil(userTotal / USER_PAGE_SIZE)} 页
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => loadUserPage(userPage - 1)}
+                        disabled={userPage <= 1}
+                        className="px-3 py-1.5 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-50"
+                      >
+                        上一页
+                      </button>
+                      <button
+                        onClick={() => loadUserPage(userPage + 1)}
+                        disabled={userPage >= Math.ceil(userTotal / USER_PAGE_SIZE)}
+                        className="px-3 py-1.5 text-xs border border-gray-300 rounded disabled:opacity-40 hover:bg-gray-50"
+                      >
+                        下一页
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1076,7 +1217,7 @@ const AdminPage = () => {
                                 if (window.confirm('确认该推广费已到账？')) {
                                   confirmManagementFee(fee.id)
                                     .then(() => { toast.success('已确认到账'); loadTabData('management-fees'); })
-                                    .catch(() => toast.error('确认失败'));
+                                    .catch((err) => toast.error(getErrorMessage(err, '确认推广费')));
                                 }
                               }}
                               className="ml-3 px-3 py-1.5 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 flex-shrink-0"
@@ -1089,6 +1230,169 @@ const AdminPage = () => {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* 四星考核返还打款 */}
+            {activeTab === 'refunds' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold">四星考核返还打款</h3>
+                  <span className="text-xs text-gray-500">达标自动生成申请，平台扫码付给用户</span>
+                </div>
+                {loading ? (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
+                  </div>
+                ) : refunds.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400">
+                    <Wallet className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    暂无返还打款申请
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {refunds.map((r: any) => (
+                      <div key={r.id} className="p-4 rounded-lg border bg-white border-gray-200">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900">{r.realName || r.nickname}</span>
+                          <span className="text-xs text-gray-500">{r.phone}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            r.refundStatus === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {r.refundStatus === 'pending' ? '待打款' : '已打款'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
+                          <span>平台代收：¥{Number(r.platformCollectedAmount).toFixed(2)}</span>
+                          <span>返还比例：{r.refundRate}%</span>
+                          <span className="text-orange-600 font-medium">应返还：¥{Number(r.refundedAmount).toFixed(2)}</span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          {r.wechatQrcodeUrl && (
+                            <div className="text-center">
+                              <img src={r.wechatQrcodeUrl} alt="微信收款码" className="w-36 h-36 object-cover rounded-lg border" />
+                              <p className="text-xs text-gray-500 mt-1">微信收款码</p>
+                            </div>
+                          )}
+                          {r.alipayQrcodeUrl && (
+                            <div className="text-center">
+                              <img src={r.alipayQrcodeUrl} alt="支付宝收款码" className="w-36 h-36 object-cover rounded-lg border" />
+                              <p className="text-xs text-gray-500 mt-1">支付宝收款码</p>
+                            </div>
+                          )}
+                          {r.companyQrcodeUrl && (
+                            <div className="text-center">
+                              <img src={r.companyQrcodeUrl} alt="企业收款码" className="w-36 h-36 object-cover rounded-lg border" />
+                              <p className="text-xs text-gray-500 mt-1">企业收款码</p>
+                            </div>
+                          )}
+                          {!r.wechatQrcodeUrl && !r.alipayQrcodeUrl && !r.companyQrcodeUrl && (
+                            <p className="text-xs text-red-500">该用户未上传收款码，请联系用户补充</p>
+                          )}
+                        </div>
+                        {r.refundStatus === 'pending' && (
+                          <button
+                            onClick={() => {
+                              if (window.confirm('确认已按用户收款码完成返还打款？')) {
+                                confirmRefund(r.id)
+                                  .then(() => { toast.success('已确认打款'); loadTabData('refunds'); })
+                                  .catch((err) => toast.error(getErrorMessage(err, '确认打款')));
+                              }
+                            }}
+                            className="mt-3 px-4 py-2 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600"
+                          >
+                            我已扫码支付，确认打款
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 通知推送 */}
+            {activeTab === 'notifications' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold">通知推送</h3>
+                  <span className="text-xs text-gray-500">在线用户约40秒内收到，可用于提醒更新</span>
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-5">
+                  <div className="flex flex-wrap items-center gap-3 mb-3">
+                    <label className="text-sm text-gray-600">接收对象</label>
+                    <select
+                      className="border border-gray-300 rounded px-2 py-1 text-sm"
+                      value={notifTarget}
+                      onChange={(e) => setNotifTarget(e.target.value as 'all' | 'user')}
+                    >
+                      <option value="all">全员广播</option>
+                      <option value="user">指定用户</option>
+                    </select>
+                    <label className="text-sm text-gray-600 ml-2">类型</label>
+                    <select
+                      className="border border-gray-300 rounded px-2 py-1 text-sm"
+                      value={notifType}
+                      onChange={(e) => setNotifType(e.target.value as 'system' | 'update')}
+                    >
+                      <option value="system">普通通知</option>
+                      <option value="update">版本更新</option>
+                    </select>
+                  </div>
+                  {notifTarget === 'user' && (
+                    <input
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3"
+                      placeholder="指定用户ID"
+                      value={notifUserId}
+                      onChange={(e) => setNotifUserId(e.target.value)}
+                    />
+                  )}
+                  <input
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3"
+                    placeholder="通知标题"
+                    value={notifTitle}
+                    onChange={(e) => setNotifTitle(e.target.value)}
+                  />
+                  <textarea
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3"
+                    rows={3}
+                    placeholder="通知内容"
+                    value={notifBody}
+                    onChange={(e) => setNotifBody(e.target.value)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      disabled={notifSubmitting || !notifTitle || !notifBody}
+                      className="px-4 py-2 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50"
+                      onClick={handleSendNotification}
+                    >
+                      {notifSubmitting ? '发送中...' : '立即发送'}
+                    </button>
+                    <button
+                      className="px-3 py-2 border border-gray-300 text-sm rounded-lg text-gray-600"
+                      onClick={fillUpdateTemplate}
+                    >
+                      填入版本更新模板
+                    </button>
+                  </div>
+                </div>
+                <h4 className="text-sm font-bold text-gray-700 mb-2">已发通知</h4>
+                <div className="space-y-2">
+                  {sentNotifications.length === 0 && (
+                    <p className="text-sm text-gray-400 py-4 text-center">暂无发送记录</p>
+                  )}
+                  {sentNotifications.map((n) => (
+                    <div key={n.id} className="border border-gray-200 rounded-lg p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{n.title}</span>
+                        <span className="text-xs text-gray-400">
+                          {n.userId ? '指定用户' : '全员'} · {n.type === 'update' ? '版本更新' : '普通'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">{n.body}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1157,7 +1461,7 @@ const AdminPage = () => {
                                     toast.success('聊天室已删除');
                                     loadTabData('chat-rooms');
                                   })
-                                  .catch(() => toast.error('删除失败'));
+                                  .catch((err) => toast.error(getErrorMessage(err, '删除聊天室')));
                               }
                             }}
                             className="ml-3 p-2 text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0"
@@ -1170,6 +1474,40 @@ const AdminPage = () => {
                     ))}
                   </div>
                 )}
+
+                {/* 平台通知栏（互动中心底部展示）编辑 */}
+                <div className="mt-6 bg-white rounded-xl p-4 border border-orange-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Megaphone className="w-4 h-4 text-orange-500" />
+                    <h4 className="text-sm font-bold text-gray-800">平台通知栏</h4>
+                    <span className="text-xs text-gray-400">（展示在互动中心页面底部，固定高度只显示一部分、可滑动查看全部）</span>
+                  </div>
+                  <textarea
+                    value={noticeContent}
+                    onFocus={() => { noticeEditingRef.current = true; }}
+                    onChange={(e) => {
+                      noticeEditingRef.current = true;
+                      setNoticeContent(e.target.value);
+                      // 自动增高：随内容撑开，用页面整体滚动来编辑，不在小框内下拉
+                      const el = e.target as HTMLTextAreaElement;
+                      el.style.height = 'auto';
+                      el.style.height = Math.max(el.scrollHeight, 200) + 'px';
+                    }}
+                    placeholder="输入平台通知内容，支持换行。编辑期间页面不会自动刷新打断。"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y overflow-hidden"
+                    rows={10}
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-gray-400">{noticeContent.length} 字</span>
+                    <button
+                      onClick={handleSaveNotice}
+                      disabled={noticeSaving}
+                      className="px-4 py-1.5 bg-orange-500 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      {noticeSaving ? '保存中...' : '保存通知'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </>
@@ -1325,7 +1663,7 @@ const AdminPage = () => {
                 <div className="col-span-2"><span className="text-gray-500">收货电话：</span>{viewingUser.receivePhone || '未设置'}</div>
                 <div className="col-span-2"><span className="text-gray-500">资质证明：</span>{viewingUser.qualification || '未设置'}</div>
                 <div className="col-span-2"><span className="text-gray-500">服务标准：</span>{viewingUser.serviceStandard || '未设置'}</div>
-                <div><span className="text-gray-500">直推人数：</span>{viewingUser.directInviteCount || 0}</div>
+                <div><span className="text-gray-500">有效直推人数：</span>{viewingUser.directInviteCount || 0}</div>
                 <div><span className="text-gray-500">团队人数：</span>{viewingUser.teamTotalCount || 0}</div>
               </div>
               {viewingUser.idCardFrontUrl && (
@@ -1417,9 +1755,21 @@ const AdminPage = () => {
               </div>
               <p className="text-xs text-red-500 mt-3">删除后该用户的所有订单、任务、团队关系将被清除，此操作不可恢复。</p>
             </div>
+            <div className="mb-4">
+              <label className="text-sm font-medium text-gray-700 mb-1 block">管理员密码</label>
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="请输入当前管理员登录密码"
+                autoComplete="off"
+                className="w-full h-11 border border-gray-300 rounded-lg px-3 text-sm focus:border-orange-400 focus:outline-none"
+              />
+              <p className="text-xs text-gray-500 mt-1">为防止误删，需再次验证管理员密码。</p>
+            </div>
             <div className="flex gap-3">
               <button
-                onClick={() => setDeletingUser(null)}
+                onClick={() => { setDeletingUser(null); setAdminPassword(''); }}
                 className="flex-1 h-11 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
               >
                 取消

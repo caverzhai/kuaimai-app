@@ -30,6 +30,7 @@ import {
 } from '@shared/api.interface';
 import type { MallOrderInfo, MallOrderListResponse } from '@shared/api.interface';
 import { Image } from '@client/src/components/ui/image';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 const TABS = [
   { key: '', label: '全部', icon: Package },
@@ -40,7 +41,7 @@ const TABS = [
   { key: MALL_ORDER_STATUS.COMPLETED, label: '已完成', icon: CheckCircle2 },
 ];
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 30;
 
 // 快递公司 -> 快递100 查询代码
 const KUAIDI100_CODES: Record<string, string> = {
@@ -133,7 +134,7 @@ export default function MyOrdersPage() {
         setPage(p);
       } catch (err) {
         logger.error('获取订单列表失败', err);
-        setError('加载失败，请稍后重试');
+        setError(getErrorMessage(err, '加载订单'));
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -165,7 +166,7 @@ export default function MyOrdersPage() {
       fetchOrders(1, true, activeTab);
     } catch (err) {
       logger.error('确认收货失败', err);
-      setError('确认收货失败，请稍后重试');
+      setError(getErrorMessage(err, '确认收货'));
     } finally {
       setConfirmingId(null);
     }
@@ -176,10 +177,10 @@ export default function MyOrdersPage() {
   }
 
   function handlePay(orderId: string) {
-    // 跳转到订单详情/支付页，这里简化为跳回确认页（需productId，从订单取）
+    // 直接打开该【已有订单】的支付页（带 orderId），不会重复创建订单
     const order = orders.find((o) => o.id === orderId);
     if (order) {
-      navigate(`/order-confirm/${order.productId}?quantity=${order.quantity}`);
+      navigate(`/order-confirm/${order.productId}?orderId=${order.id}`);
     }
   }
 

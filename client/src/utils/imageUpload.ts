@@ -1,4 +1,4 @@
-// 通用图片上传工具
+﻿// 通用图片上传工具
 import { logger } from '@lark-apaas/client-toolkit/logger';
 
 /**
@@ -72,15 +72,28 @@ export async function uploadImageToServer(file: File): Promise<string> {
     setTimeout(() => reject(new Error('上传超时')), 30000);
   });
 
-  const response = (await Promise.race([uploadPromise, timeoutPromise])) as {
-    data: { success: boolean; url: string; message?: string };
-  };
-
-  logger.log('[ImageUpload] 服务器响应:', response.data);
-
-  if (!response.data.success) {
-    throw new Error(response.data.message || '上传失败');
+  try {
+    const response = (await Promise.race([uploadPromise, timeoutPromise])) as {
+      data: { success: boolean; url: string; message?: string };
+    };
+    logger.log('[ImageUpload] 服务器响应:', response.data);
+    if (!response.data.success) {
+      throw new Error(response.data.message || '上传失败，请重试');
+    }
+    return response.data.url;
+  } catch (err: any) {
+    const status = err?.status ?? err?.response?.status;
+    const msg = String(err?.message || '');
+    logger.error('[ImageUpload] 上传异常 status=', status, 'msg=', msg);
+    if (status === 413 || /too large|payload|413/i.test(msg)) {
+      throw new Error('图片过大，请裁剪或截图后重新选择较小的图片再上传');
+    }
+    if (msg.includes('timeout') || msg.includes('超时')) {
+      throw new Error('上传超时，请检查网络后重试（建议在 Wi-Fi 环境下上传）');
+    }
+    if (!err?.response && !msg.includes('timeout')) {
+      throw new Error('网络连接失败，请检查网络后重试');
+    }
+    throw new Error(err?.message || '上传失败，请重试');
   }
-
-  return response.data.url;
 }

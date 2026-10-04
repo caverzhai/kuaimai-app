@@ -206,7 +206,9 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
       let userMessage = '';
       try {
         const errorJson = JSON.parse(errorText);
-        if (errorJson.message) {
+        if (Array.isArray(errorJson.message)) {
+          userMessage = errorJson.message.join('；');
+        } else if (errorJson.message) {
           userMessage = errorJson.message;
         } else if (errorJson.error?.message) {
           userMessage = errorJson.error.message;
@@ -219,17 +221,17 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
       // 如果没有提取到用户消息，使用默认错误消息
       if (!userMessage) {
         if (response.status === 409) {
-          userMessage = '操作冲突，请稍后重试';
+          userMessage = '操作与当前数据有冲突（可能已被他人处理），请返回刷新后重试';
         } else if (response.status === 401) {
-          userMessage = '登录已过期，请重新登录';
+          userMessage = '登录状态已过期，请退出后重新登录';
         } else if (response.status === 403) {
-          userMessage = '没有权限执行此操作';
+          userMessage = '没有权限执行此操作，请确认账号类型或联系管理员';
         } else if (response.status === 404) {
-          userMessage = '请求的资源不存在';
+          userMessage = '内容不存在或已被删除，请返回刷新';
         } else if (response.status >= 500) {
-          userMessage = '服务器错误，请稍后重试';
+          userMessage = '服务器繁忙，请稍后重试；若一直出现请联系客服';
         } else {
-          userMessage = '请求失败，请稍后重试';
+          userMessage = '操作未能完成，请检查填写内容或网络后重试';
         }
       }
       
@@ -257,23 +259,19 @@ async function sendRequest<T = unknown>(config: AxiosConfig): Promise<AxiosRespo
       headers: responseHeaders,
     };
   } catch (error: unknown) {
+    // 业务错误（HTTP 状态码非 2xx，精准消息已在上方提取，error 上带 status/response）：
+    // 必须原样上抛，绝不能再被包装成“网络连接失败”，否则所有错误提示都会失真
+    const maybeStatus = (error as Error & { status?: number })?.status;
+    if (error instanceof Error && maybeStatus !== undefined) {
+      throw error;
+    }
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        throw new Error(
-          `请求超时（30秒）\n` +
-          `URL: ${finalUrl}\n` +
-          `方法: ${method}\n` +
-          `请检查网络连接或服务器状态`
-        );
+        throw new Error('请求超时：当前网络较慢，请切换 Wi-Fi 或手机流量后重试');
       }
-      // 网络错误（Failed to fetch等），添加详细信息
-      if (!error.message.includes('URL:')) {
-        throw new Error(
-          `${error.message}\n` +
-          `URL: ${finalUrl}\n` +
-          `方法: ${method}\n` +
-          `请检查网络连接或服务器状态`
-        );
+      // 仅当 fetch 没有拿到任何 HTTP 响应（真正的网络层失败，如 Failed to fetch）时，才提示网络连接失败
+      if (!error.message.includes('网络连接失败')) {
+        throw new Error('网络连接失败：请检查手机是否联网（可切换 Wi-Fi/流量），或稍后重试');
       }
       throw error;
     }

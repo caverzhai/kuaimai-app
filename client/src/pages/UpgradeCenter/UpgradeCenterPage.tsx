@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   getUpgradeCenter as apiGetUpgradeCenter,
   startUpgradeTask as apiStartUpgradeTask,
+  confirmNextLevel as apiConfirmNextLevel,
 } from '../../api';
 import type {
   UpgradeCenterInfo,
@@ -29,6 +30,7 @@ import {
   Loader2,
   RefreshCw,
 } from 'lucide-react';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 export default function UpgradeCenterPage() {
   const { user, loading: authLoading } = useAuth();
@@ -37,6 +39,7 @@ export default function UpgradeCenterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -51,7 +54,7 @@ export default function UpgradeCenterPage() {
       setData(result as UpgradeCenterInfo);
     } catch (err) {
       logger.error('获取升级中心数据失败', err);
-      setError('加载失败，请稍后重试');
+      setError(getErrorMessage(err, '加载升级任务'));
     } finally {
       setLoading(false);
     }
@@ -64,9 +67,21 @@ export default function UpgradeCenterPage() {
       await fetchData();
     } catch (err) {
       logger.error('开始任务失败', err);
-      setError('开始任务失败，请稍后重试');
+      setError(getErrorMessage(err, '开始升级任务'));
     } finally {
       setStartingId(null);
+    }
+  }
+
+  async function handleConfirmNextLevel() {
+    setConfirming(true);
+    try {
+      await apiConfirmNextLevel();
+      window.location.reload();
+    } catch (err) {
+      logger.error('确认升级失败', err);
+      setError(getErrorMessage(err, '确认升级'));
+      setConfirming(false);
     }
   }
 
@@ -237,6 +252,39 @@ export default function UpgradeCenterPage() {
           <div className="text-sm text-amber-600 mt-1">
             当前等级：{currentLevelName}（第{currentLayer}层）
           </div>
+        </div>
+      )}
+
+      {/* 等待本人确认升级：未点确认前不开放本级任务 */}
+      {!isMaxLevel && data.needConfirmUpgrade && (
+        <div className="bg-white rounded-2xl border border-orange-200 p-6 text-center shadow-sm">
+          <TrendingUp className="h-10 w-10 text-orange-500 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            当前{currentLevelName}任务已全部完成
+          </h3>
+          <p className="text-sm text-gray-600 mb-1">
+            下一等级：<span className="font-semibold text-orange-600">{nextLevelName}</span>
+          </p>
+          <p className="text-xs text-gray-400 mb-5">
+            是否确认升级？确认后才会开放本级全部升级任务，请量力而行、谨慎选择。
+          </p>
+          <button
+            onClick={handleConfirmNextLevel}
+            disabled={confirming}
+            className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-2.5 rounded-lg text-base font-semibold transition-colors inline-flex items-center gap-2 disabled:opacity-50"
+          >
+            {confirming ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在开放任务...
+              </>
+            ) : (
+              <>
+                <Crown className="h-4 w-4" />
+                我要升级到{nextLevelName}
+              </>
+            )}
+          </button>
         </div>
       )}
 

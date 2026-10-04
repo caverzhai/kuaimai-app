@@ -14,6 +14,7 @@ import type {
   ConsultantListResponse,
 } from '@shared/api.interface';
 import { LEVEL_NAMES, LEVEL_LAYERS } from '@shared/api.interface';
+import { getErrorMessage } from '../../utils/errorMessage';
 
 const LEVEL_OPTIONS = [
   { value: '', label: '全部等级' },
@@ -87,7 +88,7 @@ function ConsultantCard({ consultant }: { consultant: ConsultantInfo }) {
       <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
         <div className="flex items-center gap-1 text-xs text-gray-500">
           <Users className="w-3.5 h-3.5" />
-          <span>直推 {consultant.directInviteCount} 人</span>
+          <span>有效直推 {consultant.directInviteCount} 人</span>
         </div>
         <span className="text-xs text-orange-500 font-medium">查看详情 →</span>
       </div>
@@ -146,7 +147,7 @@ export default function ConsultantsPage() {
         setHasMore(pageNum * pageSize < data.total);
         setPage(pageNum);
       } catch (err) {
-        setError('加载咨询师列表失败，请稍后重试');
+        setError(getErrorMessage(err, '加载咨询师列表'));
         logger.error('加载咨询师列表失败', err);
       } finally {
         setLoading(false);

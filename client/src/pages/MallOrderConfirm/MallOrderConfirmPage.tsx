@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -8,6 +9,7 @@ import {
   User,
   Phone,
   Upload,
+  Camera,
   CheckCircle2,
   Loader2,
   AlertCircle,
@@ -20,9 +22,11 @@ import {
   createMallOrder,
   getPlatformQrcode,
   getOrderQrcode,
+  getMallOrderDetail,
   uploadMallPayment,
 } from '../../api';
 import { uploadImageToServer } from '../../utils/imageUpload';
+import { getErrorMessage } from '../../utils/errorMessage';
 import type {
   ProductInfo,
   MallOrderInfo,
@@ -58,6 +62,7 @@ export default function MallOrderConfirmPage() {
   const [imageUploading, setImageUploading] = useState(false);
   const [screenshotUrl, setScreenshotUrl] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!productId) return;
@@ -72,12 +77,42 @@ export default function MallOrderConfirmPage() {
         setProduct(p);
       } catch (e) {
         logger.error('获取商品详情失败', e);
-        setError('加载商品失败，请稍后重试');
+        setError(getErrorMessage(e, '加载商品信息'));
       } finally {
         setLoading(false);
       }
     })();
   }, [productId]);
+
+  // 「去付款」模式：URL 带 orderId 时，直接打开【已有订单】的支付页，不再新建订单
+  const orderIdParam = sp.get('orderId');
+  useEffect(() => {
+    const oid = sp.get('orderId');
+    if (!oid) return;
+    let alive = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const od = (await getMallOrderDetail(oid)) as MallOrderInfo;
+        if (!alive) return;
+        setOrder(od);
+        setQty(Number(od.quantity) || 1);
+        const qr = (await getOrderQrcode(oid)) as PlatformQrcodeInfo;
+        if (!alive) return;
+        setQrcode(qr);
+        setStep('payment');
+      } catch (e) {
+        if (!alive) return;
+        logger.error('加载待付款订单失败', e);
+        setError(getErrorMessage(e, '加载订单'));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderIdParam]);
 
   useEffect(() => {
     if (!user) return;
@@ -113,16 +148,13 @@ export default function MallOrderConfirmPage() {
       setStep('payment');
     } catch (e: any) {
       logger.error('创建订单失败', e);
-      const raw = e?.response?.data?.message ?? e?.message ?? '创建订单失败，请稍后重试';
-      const msg = Array.isArray(raw) ? raw.join('；') : String(raw);
-      setError(msg);
+      setError(getErrorMessage(e, '创建订单'));
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
+  async function processFile(f: File) {
     if (!f) return;
     setImageUploading(true);
     setError(null);
@@ -132,10 +164,9 @@ export default function MallOrderConfirmPage() {
       setScreenshotUrl(url);
     } catch (err) {
       logger.error('图片上传失败', err);
-      setError('图片上传失败，请稍后重试');
+      setError(getErrorMessage(err, '上传付款截图'));
     } finally {
       setImageUploading(false);
-      if (e.target) e.target.value = '';
     }
   }
 
@@ -159,7 +190,7 @@ export default function MallOrderConfirmPage() {
       }, 1500);
     } catch (e) {
       logger.error('上传付款截图失败', e);
-      setError('上传失败，请稍后重试');
+      setError(getErrorMessage(e, '提交付款凭证'));
     } finally {
       setUploading(false);
     }
@@ -395,19 +426,36 @@ export default function MallOrderConfirmPage() {
                 )}
               </div>
               <p className="text-center text-xs text-gray-400 mt-3">
-                请备注订单号转账，20分钟内未审核自动确认
+                请备注订单号转账，3分钟内未审核自动确认
               </p>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm p-4">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">
                 上传付款截图
               </h3>
+              <p className="text-xs text-red-600 font-medium mb-3">上传假图，立即封号。</p>
               <input
                 type="file"
                 ref={fileRef}
                 accept="image/*"
-                onChange={onFileChange}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) processFile(f);
+                  if (e.target) e.target.value = '';
+                }}
+                className="hidden"
+              />
+              <input
+                type="file"
+                ref={cameraFileRef}
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) processFile(f);
+                  if (e.target) e.target.value = '';
+                }}
                 className="hidden"
               />
               {screenshotUrl ? (
@@ -423,6 +471,23 @@ export default function MallOrderConfirmPage() {
                   <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs text-center py-1">
                     点击更换
                   </div>
+                </div>
+              ) : Capacitor.isNativePlatform() ? (
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => cameraFileRef.current?.click()}
+                    className="w-40 h-40 rounded-lg border-2 border-dashed border-orange-400 bg-orange-50 flex flex-col items-center justify-center text-orange-500 hover:bg-orange-100 transition"
+                  >
+                    <Camera className="w-8 h-8 mb-1" />
+                    <span className="text-xs">拍照上传</span>
+                  </button>
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    className="w-40 h-40 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-orange-300 hover:text-orange-400 transition"
+                  >
+                    <Upload className="w-8 h-8 mb-1" />
+                    <span className="text-xs">相册选择</span>
+                  </button>
                 </div>
               ) : (
                 <button
@@ -444,7 +509,7 @@ export default function MallOrderConfirmPage() {
               已提交，等待审核
             </h3>
             <p className="text-sm text-gray-500 text-center mb-6">
-              您的付款凭证已提交，工作人员将在20分钟内完成审核
+              您的付款凭证已提交，工作人员将在3分钟内完成审核
               <br />
               审核通过后将为您发货
             </p>

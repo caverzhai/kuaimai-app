@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { axiosForBackend } from '@lark-apaas/client-toolkit/utils/getAxiosForBackend';
-import { ArrowLeft, Check, Package, Truck } from 'lucide-react';
+import { ArrowLeft, Check, Package, Truck, Download } from 'lucide-react';
+import { getErrorMessage } from '../../utils/errorMessage';
+import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 
 interface MallOrderInfo {
   id: string;
@@ -49,6 +51,7 @@ export default function SellerOrdersPage() {
   const [orders, setOrders] = useState<MallOrderInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('');
+  const [loadError, setLoadError] = useState('');
 
   // 发货表单
   const [shipOrder, setShipOrder] = useState<MallOrderInfo | null>(null);
@@ -62,16 +65,30 @@ export default function SellerOrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
-  const loadOrders = async () => {
+  // 是否有需要跟进的订单（待确认收款/待发货/待收货）：有则高频轮询，新订单自动出现
+  const hasActiveOrder = orders.some((o) =>
+    ['pending_review', 'pending_shipment', 'pending_delivery'].includes(o.status),
+  );
+
+  // 统一可见性轮询：前台高频12s / 低频60s；APP 回前台延迟0.8s立即刷新，无需手动下拉
+  useVisiblePolling({
+    intervalMs: hasActiveOrder ? 12000 : 60000,
+    visibleDelayMs: 800,
+    onPoll: () => loadOrders(true),
+  });
+
+  const loadOrders = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const params: Record<string, string> = { page: '1', pageSize: '50' };
       if (filter) params.status = filter;
       const res = await axiosForBackend.get('/api/mall-orders/seller/orders', { params });
       const data = res.data as { items: MallOrderInfo[] };
       setOrders(data.items || []);
+      setLoadError('');
     } catch (e) {
       console.error('加载订单失败', e);
+      setLoadError(getErrorMessage(e, '加载订单'));
     } finally {
       setLoading(false);
     }
@@ -81,9 +98,9 @@ export default function SellerOrdersPage() {
     try {
       await axiosForBackend.post(`/api/mall-orders/${orderId}/seller-confirm-payment`);
       alert('已确认收款，请尽快发货');
-      loadOrders();
+      loadOrders(true);
     } catch (e: any) {
-      alert(e?.response?.data?.message || '操作失败');
+      alert(getErrorMessage(e, '确认收款'));
     }
   };
 
@@ -111,12 +128,59 @@ export default function SellerOrdersPage() {
       });
       alert('发货成功');
       setShipOrder(null);
-      loadOrders();
+      loadOrders(true);
     } catch (e: any) {
-      alert(e?.response?.data?.message || '发货失败');
+      alert(getErrorMessage(e, '发货'));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // 导出订单 CSV（含收货人/电话/地址，方便发货与对账；UTF-8 BOM，Excel 可直接打开）
+  const csvEscape = (v: unknown): string => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+
+  const handleExportCsv = () => {
+    if (orders.length === 0) {
+      alert('当前筛选条件下没有可导出的订单');
+      return;
+    }
+    const headers = [
+      '订单号', '下单时间', '商品名称', '数量', '商品金额',
+      '收货人', '联系电话', '收货地址', '物流方式', '物流单号', '订单状态',
+    ];
+    const lines = orders.map((o) =>
+      [
+        o.orderNo,
+        new Date(o.createdAt).toLocaleString(),
+        o.productName,
+        o.quantity,
+        o.totalAmount,
+        o.receiveName,
+        o.receivePhone,
+        o.receiveAddress,
+        o.logisticsCompany || '',
+        o.logisticsNo || '',
+        STATUS_NAMES[o.status] || o.status,
+      ]
+        .map(csvEscape)
+        .join(','),
+    );
+    const csv =
+      '\uFEFF' + [headers.map(csvEscape).join(','), ...lines].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const t = new Date();
+    const dkey = `${t.getFullYear()}${String(t.getMonth() + 1).padStart(2, '0')}${String(t.getDate()).padStart(2, '0')}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `卖家订单_${dkey}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -130,7 +194,13 @@ export default function SellerOrdersPage() {
           <button onClick={() => navigate(-1)} className="p-1">
             <ArrowLeft size={24} />
           </button>
-          <h1 className="text-lg font-bold">卖家订单管理</h1>
+          <h1 className="text-lg font-bold flex-1">卖家订单管理</h1>
+          <button
+            onClick={handleExportCsv}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+          >
+            <Download size={16} /> 导出
+          </button>
         </div>
         {/* 状态筛选 */}
         <div className="flex gap-2 px-4 pb-3 overflow-x-auto">
@@ -150,6 +220,9 @@ export default function SellerOrdersPage() {
 
       {/* 订单列表 */}
       <div className="p-4 space-y-3">
+        {loadError && (
+          <div className="p-3 bg-red-50 text-red-600 rounded-xl text-sm">{loadError}</div>
+        )}
         {loading ? (
           <div className="text-center py-12 text-gray-500">加载中...</div>
         ) : orders.length === 0 ? (
@@ -313,12 +386,12 @@ export default function SellerOrdersPage() {
 
             {shipType === 'self_pickup' && (
               <div className="mb-4 text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
-                买家将到店自行提货，确认后订单进入待收货状态，20分钟后自动完成。
+                买家将到店自行提货，确认后订单进入待收货状态，3分钟后自动完成。
               </div>
             )}
             {shipType === 'no_logistics' && (
               <div className="mb-4 text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
-                无需物流配送（同城配送/虚拟商品等），确认后订单进入待收货状态，20分钟后自动完成。
+                无需物流配送（同城配送/虚拟商品等），确认后订单进入待收货状态，3分钟后自动完成。
               </div>
             )}
 
