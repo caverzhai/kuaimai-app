@@ -80,6 +80,8 @@ const AdminPage = () => {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [userPage, setUserPage] = useState(1);
   const [userTotal, setUserTotal] = useState(0);
+  const [userKeyword, setUserKeyword] = useState('');
+  const [userSearch, setUserSearch] = useState('');
   const USER_PAGE_SIZE = 20;
   const [companyAudits, setCompanyAudits] = useState<UserInfo[]>([]);
   const [consultOrders, setConsultOrders] = useState<ConsultOrderInfo[]>([]);
@@ -147,8 +149,9 @@ const AdminPage = () => {
     }
     // 每30秒自动刷新当前tab数据（审核后台实时更新）
     // 编辑商品时暂停自动刷新，避免表单内容丢失
+    // 用户管理tab不自动刷新，避免管理员翻页/搜索定位用户时列表跳动
     const interval = setInterval(() => {
-      if (!showProductForm && !noticeEditingRef.current) {
+      if (!showProductForm && !noticeEditingRef.current && activeTab !== 'users') {
         loadTabData(activeTab);
       }
     }, 30000);
@@ -178,7 +181,7 @@ const AdminPage = () => {
           break;
         }
         case 'users': {
-          const data = await getAdminUsers({ page: userPage, pageSize: USER_PAGE_SIZE });
+          const data = await getAdminUsers({ page: userPage, pageSize: USER_PAGE_SIZE, keyword: userSearch || undefined });
           setUsers(data.items || []);
           setUserTotal(data.total || 0);
           break;
@@ -426,13 +429,24 @@ const AdminPage = () => {
   // 重置用户密码（用户忘记密码、无短信验证码时的兜底方案）
   const loadUserPage = async (page: number) => {
     try {
-      const data = await getAdminUsers({ page, pageSize: USER_PAGE_SIZE });
+      const data = await getAdminUsers({ page, pageSize: USER_PAGE_SIZE, keyword: userSearch || undefined });
       setUsers(data.items || []);
       setUserTotal(data.total || 0);
       setUserPage(page);
     } catch (err) {
       toast(getErrorMessage(err, '加载用户'));
     }
+  };
+
+  // 按手机号/昵称搜索定位用户
+  const handleUserSearch = () => {
+    setUserSearch(userKeyword.trim());
+    loadUserPage(1);
+  };
+  const handleUserSearchReset = () => {
+    setUserKeyword('');
+    setUserSearch('');
+    loadUserPage(1);
   };
 
   async function handleResetPassword(user: UserInfo) {
@@ -781,6 +795,34 @@ const AdminPage = () => {
             {activeTab === 'users' && (
               <div>
                 <h3 className="text-lg font-bold mb-4">用户管理</h3>
+                <div className="mb-3 flex items-center gap-2">
+                  <input
+                    value={userKeyword}
+                    onChange={(e) => setUserKeyword(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleUserSearch(); }}
+                    placeholder="输入手机号或昵称，直接定位用户"
+                    className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:border-orange-400"
+                  />
+                  <button
+                    onClick={handleUserSearch}
+                    className="px-4 py-2 text-sm bg-orange-500 text-white rounded hover:bg-orange-600"
+                  >
+                    搜索
+                  </button>
+                  {userSearch && (
+                    <button
+                      onClick={handleUserSearchReset}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+                {userSearch && (
+                  <div className="text-xs text-gray-500 mb-2">
+                    已筛选：{userSearch}（共 {userTotal} 人）
+                  </div>
+                )}
                 <div className="space-y-2">
                   {users.length === 0 ? (
                     <div className="text-center text-gray-500 py-12">暂无用户</div>
