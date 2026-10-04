@@ -38,13 +38,14 @@ export class TeamService {
 
   async getTeamTree(userId: string): Promise<TeamInfo> {
     // 查询当前用户基本信息
-    const currentUsers: Pick<UserSelect, 'id' | 'nickname' | 'avatarUrl' | 'level' | 'directInviteCount' | 'teamTotalCount'>[] =
+    const currentUsers: Pick<UserSelect, 'id' | 'nickname' | 'avatarUrl' | 'level' | 'assessmentStatus' | 'directInviteCount' | 'teamTotalCount'>[] =
       await this.db
         .select({
           id: users.id,
           nickname: users.nickname,
           avatarUrl: users.avatarUrl,
           level: users.level,
+          assessmentStatus: users.assessmentStatus,
           directInviteCount: users.directInviteCount,
           teamTotalCount: users.teamTotalCount,
         })
@@ -80,6 +81,8 @@ export class TeamService {
         },
         directInviteCount: currentUser.directInviteCount,
         teamTotalCount: currentUser.teamTotalCount,
+        inTreeCount: 0,
+        registeredCount: 0,
       };
     }
 
@@ -87,13 +90,14 @@ export class TeamService {
     const descendantUserIds: string[] = descendantRelations.map(
       (r: { userId: string; parentId: string | null; treeLevel: number }) => r.userId,
     );
-    const descendantUsers: Pick<UserSelect, 'id' | 'nickname' | 'avatarUrl' | 'level'>[] =
+    const descendantUsers: Pick<UserSelect, 'id' | 'nickname' | 'avatarUrl' | 'level' | 'assessmentStatus'>[] =
       await this.db
         .select({
           id: users.id,
           nickname: users.nickname,
           avatarUrl: users.avatarUrl,
           level: users.level,
+          assessmentStatus: users.assessmentStatus,
         })
         .from(users)
         .where(inArray(users.id, descendantUserIds));
@@ -144,6 +148,14 @@ export class TeamService {
 
     const tree = buildTree(currentUser.id);
 
+    // 团队人数实时口径（不依赖增量冗余 teamTotalCount）：
+    // registeredCount = 路径在我之下的全部关系（含未完成4级占位，排除自己）
+    // inTreeCount = 其中已完成4级（level<>junior）且未被淘汰的有效成员
+    const registeredCount = Math.max(0, descendantRelations.length - 1);
+    const inTreeCount = descendantUsers.filter(
+      (u) => u.id !== userId && u.level !== 'junior' && u.assessmentStatus !== 'eliminated',
+    ).length;
+
     // 有效直推人数：直接邀请 + 已完成4级(level<>junior) + 真实在团队树中；排除已淘汰号
     const effRows = await this.db
       .select({ n: sql<number>`count(*)::int` })
@@ -158,6 +170,8 @@ export class TeamService {
       tree,
       directInviteCount: effectiveDirect,
       teamTotalCount: currentUser.teamTotalCount,
+      inTreeCount,
+      registeredCount,
     };
   }
 

@@ -421,8 +421,8 @@ function TaskCenterPage() {
         });
       }
 
-      // 直推不足提醒
-      if (user.isInvited && user.level !== 'junior' && user.directInviteCount < 3) {
+      // 直推不足提醒（平台管理员豁免3直推限制）
+      if (user.isInvited && user.level !== 'junior' && user.directInviteCount < 3 && user.phone !== '13800000000') {
         list.push({
           id: 'low_invite',
           type: 'info',

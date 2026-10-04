@@ -578,6 +578,7 @@ export class UsersService {
         eq(users.assessmentStatus, 'none'),
         isNotNull(users.fourStarAt),
         lte(users.fourStarAt, sevenDaysAgo),
+        ne(users.phone, '13800000000'), // 平台管理员豁免3直推考核，不代收/不淘汰
       ));
     for (const u of assessmentCandidates) {
       const income = Number(u.totalConsultIncome) || 0;
@@ -593,7 +594,10 @@ export class UsersService {
     const collecting = await this.db
       .select()
       .from(users)
-      .where(eq(users.assessmentStatus, 'collecting'));
+      .where(and(
+        eq(users.assessmentStatus, 'collecting'),
+        ne(users.phone, '13800000000'), // 平台管理员豁免
+      ));
 
     const passedList: Array<{ userId: string; rate: number; refundAmount: number }> = [];
     const eliminatedList: string[] = [];

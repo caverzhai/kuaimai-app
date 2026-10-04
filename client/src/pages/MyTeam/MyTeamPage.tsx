@@ -25,16 +25,17 @@ interface TeamNodeProps {
   depth: number;
   isLast: boolean;
   isRoot?: boolean;
-  maxDepth: number; // 卖家=9（思维导图开放到下9代），非卖家=5（维持现状）
+  maxDepth: number; // 管理员=不限；卖家=9；非卖家=5
+  isAdmin?: boolean; // 管理员：始终显示姓名、不折叠、不截断
 }
 
-function TeamNode({ node, depth, isLast, isRoot, maxDepth }: TeamNodeProps) {
+function TeamNode({ node, depth, isLast, isRoot, maxDepth, isAdmin }: TeamNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children && node.children.length > 0;
   const levelName = LEVEL_NAMES[node.level] || node.level;
   const levelLayer = LEVEL_LAYERS[node.level] || 0;
-  // 第5级及以上（depth >= 5）只显示人数，不显示姓名
-  const isCollapsedLevel = depth >= 5;
+  // 第5级及以上（depth >= 5）只显示人数，不显示姓名；管理员不折叠
+  const isCollapsedLevel = !isAdmin && depth >= 5;
 
   // 超过该用户可见的最大深度：截断不渲染
   if (depth > maxDepth) return null;
@@ -88,6 +89,7 @@ function TeamNode({ node, depth, isLast, isRoot, maxDepth }: TeamNodeProps) {
                 depth={depth + 1}
                 isLast={idx === node.children.length - 1}
                 maxDepth={maxDepth}
+                isAdmin={isAdmin}
               />
             ))}
           </div>
@@ -175,6 +177,7 @@ function TeamNode({ node, depth, isLast, isRoot, maxDepth }: TeamNodeProps) {
               depth={depth + 1}
               isLast={idx === node.children.length - 1}
               maxDepth={maxDepth}
+              isAdmin={isAdmin}
             />
           ))}
         </div>
@@ -257,6 +260,8 @@ function DownlineLevelBlock({
 export default function MyTeamPage() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  // 平台管理员：关系树全网、无层级限制
+  const isAdmin = user?.phone === '13800000000';
   const [data, setData] = useState<TeamInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -393,11 +398,12 @@ export default function MyTeamPage() {
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-2">
             <Users className="h-4 w-4 text-orange-500" />
-            团队总人数
+            团队总人数（进树/注册）
           </div>
           <div className="text-2xl font-bold text-gray-900">
-            {data.teamTotalCount}
+            {data.inTreeCount}/{data.registeredCount}
           </div>
+          <div className="text-xs text-gray-400 mt-1">进树=完成4级 · 注册=含未完成占位</div>
         </div>
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-2">
@@ -427,7 +433,7 @@ export default function MyTeamPage() {
         </h2>
 
         {data.tree ? (
-          <TeamNode node={data.tree} depth={0} isLast={true} isRoot={true} maxDepth={user.isSeller ? 9 : 5} />
+          <TeamNode node={data.tree} depth={0} isLast={true} isRoot={true} maxDepth={isAdmin ? 9999 : user.isSeller ? 9 : 5} isAdmin={isAdmin} />
         ) : (
           <div className="text-center py-12 text-gray-400">
             暂无团队数据

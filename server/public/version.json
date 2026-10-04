@@ -1,8 +1,8 @@
 {
-  "version": "3.3.9",
-  "versionCode": 339,
+  "version": "3.4.0",
+  "versionCode": 340,
   "forceUpdate": true,
-  "forceUpdateBelowCode": 339,
-  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai3.3.9.apk",
-  "releaseNotes": "新增苹果手机 App 独立安装申请入口（4级及以上在「我的」页），并修复版本更新问题。"
+  "forceUpdateBelowCode": 340,
+  "downloadUrl": "https://backend-production-5d79.up.railway.app/download/kuaimai3.4.0.apk",
+  "releaseNotes": "团队人数统一以完成4级进树为准，显示「进树/注册」；平台管理员豁免3直推考核、关系树开放全网层级。"
 }

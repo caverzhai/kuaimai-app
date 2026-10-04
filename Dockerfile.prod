@@ -3,14 +3,14 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Cache bust to force rebuild
-ARG CACHEBUST=20260922060000
+ARG CACHEBUST=1791086400
 RUN echo "Cache bust: $CACHEBUST"
 
 # Copy backend and shared code (includes local built APK and frontend dist)
 COPY server/ ./server/
 COPY shared/ ./shared/
 
-# Use local APK (already built at 2.32.0) instead of downloading from GitHub
+# Use local APK (already built) instead of downloading from GitHub
 RUN echo "Using local APK, size: $(wc -c < server/public/download/kuaimai.apk) bytes"
 
 # Install dependencies and build

@@ -266,6 +266,10 @@ export interface TeamInfo {
   tree: TeamTreeNode;
   directInviteCount: number;
   teamTotalCount: number;
+  /** 进树人数：已完成4级任务（level<>junior）且未被淘汰的有效成员 */
+  inTreeCount: number;
+  /** 注册人数：路径在我之下的全部成员（含未完成4级的占位者） */
+  registeredCount: number;
 }
 
 export interface InviteRecordInfo {
